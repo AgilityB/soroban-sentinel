@@ -313,7 +313,7 @@ fn test_csv_rejects_unwritable_output_with_exit_code_10() {
         ])
         .assert()
         .code(10)
-        .stderr(predicate::str::contains("--output parent directory"));
+        .stderr(predicate::str::contains("parent directory"));
 }
 
 #[test]

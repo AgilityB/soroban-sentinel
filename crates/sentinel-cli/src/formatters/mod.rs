@@ -1,5 +1,13 @@
-// TODO: restore formatter barrel exports (csv/json/sarif/text) once those files are recovered.
+//! Output formatters for scan reports.
 
+pub mod json;
 pub mod junit;
+pub mod sarif;
+pub mod tabular;
+pub mod text;
 
+pub use json::{render_json, render_json_with_diff, JsonEntryReport, JsonSummary, JsonTTLReport};
 pub use junit::render_junit;
+pub use sarif::render_sarif;
+pub use tabular::{render_csv, CSV_HEADER};
+pub use text::{format_with_commas, render_text, render_text_with_diff};

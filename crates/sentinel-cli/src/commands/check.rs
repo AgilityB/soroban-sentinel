@@ -11,8 +11,7 @@ use crate::commands::{
     EXIT_CRITICAL_OR_ARCHIVED, EXIT_INVALID_ARGS, EXIT_OK, EXIT_RPC_FAILURE, EXIT_WARN,
 };
 use crate::config::load_manifest;
-// TODO: restore formatter imports (render_text, JsonTTLReport) once those backends are rewired.
-// use crate::formatters::{render_text, JsonTTLReport};
+use crate::formatters::{render_text, JsonTTLReport};
 
 #[derive(Serialize)]
 struct ContractResult {
@@ -98,15 +97,19 @@ pub async fn run_check(args: CheckArgs) -> i32 {
                     RiskLevel::Archived => overall.summary.archived += 1,
                 }
                 if !json {
-                    // TODO: render_text is not wired in this PR branch yet.
-                    println!("[text formatter not wired in this PR branch]");
+                    println!("{}", render_text(&report));
                 }
-                (Some(status), json.then(|| serde_json::json!({})), None)
+                let report_json = if json {
+                    Some(serde_json::to_value(JsonTTLReport::from(&report)).unwrap())
+                } else {
+                    None
+                };
+                (Some(status), report_json, None)
             }
             Err(error) => {
                 overall.summary.failed += 1;
                 // RPC endpoints and response bodies can contain connection credentials.
-                let error = match error {
+                let error = match &error {
                     SentinelError::RpcConnectionTimeout(_) => {
                         "RPC connection failed or timed out".to_owned()
                     }
@@ -115,6 +118,12 @@ pub async fn run_check(args: CheckArgs) -> i32 {
                     }
                     SentinelError::SerializationError(_) => {
                         "RPC response could not be decoded".to_owned()
+                    }
+                    SentinelError::UnsupportedProtocol { .. } => {
+                        "Contract uses an unsupported protocol version".to_owned()
+                    }
+                    SentinelError::MissingProtocolInfo => {
+                        "RPC endpoint did not expose enough protocol metadata".to_owned()
                     }
                     _ => "Contract scan failed".to_owned(),
                 };

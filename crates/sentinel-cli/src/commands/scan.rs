@@ -13,7 +13,9 @@ use sentinel_core::error::SentinelError;
 use sentinel_core::usecases::{ScanContractUseCase, ScanRequest};
 
 use crate::args::ScanArgs;
-use crate::formatters::render_junit;
+use crate::formatters::{
+    render_csv, render_json_with_diff, render_junit, render_sarif, render_text_with_diff,
+};
 
 /// Exit code: All evaluated storage entries have status OK.
 pub const EXIT_OK: i32 = 0;
@@ -303,13 +305,10 @@ pub async fn run_scan(args: ScanArgs) -> i32 {
         .map(|b| compare_reports(&report, b));
 
     let output_result = match format.as_str() {
-        "text" | "json" | "csv" | "sarif" => {
-            eprintln!(
-                "Error: formatter backend for '{}' is not wired in this PR branch",
-                format
-            );
-            return EXIT_INVALID_ARGS;
-        }
+        "text" => Ok(render_text_with_diff(&report, baseline_diff.as_ref())),
+        "json" => render_json_with_diff(&report, baseline_diff.clone()),
+        "csv" => render_csv(&report),
+        "sarif" => render_sarif(&report),
         "junit" => render_junit(&report),
         other => {
             eprintln!(
