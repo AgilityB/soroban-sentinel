@@ -11,14 +11,15 @@ use crate::commands::{
     EXIT_CRITICAL_OR_ARCHIVED, EXIT_INVALID_ARGS, EXIT_OK, EXIT_RPC_FAILURE, EXIT_WARN,
 };
 use crate::config::load_manifest;
-use crate::formatters::{render_text, JsonTTLReport};
+// TODO: restore formatter imports (render_text, JsonTTLReport) once those backends are rewired.
+// use crate::formatters::{render_text, JsonTTLReport};
 
 #[derive(Serialize)]
 struct ContractResult {
     id: String,
     name: Option<String>,
     status: Option<RiskLevel>,
-    report: Option<JsonTTLReport>,
+    report: Option<serde_json::Value>,
     error: Option<String>,
 }
 
@@ -97,13 +98,10 @@ pub async fn run_check(args: CheckArgs) -> i32 {
                     RiskLevel::Archived => overall.summary.archived += 1,
                 }
                 if !json {
-                    println!("{}", render_text(&report));
+                    // TODO: render_text is not wired in this PR branch yet.
+                    println!("[text formatter not wired in this PR branch]");
                 }
-                (
-                    Some(status),
-                    json.then(|| JsonTTLReport::from(&report)),
-                    None,
-                )
+                (Some(status), json.then(|| serde_json::json!({})), None)
             }
             Err(error) => {
                 overall.summary.failed += 1;

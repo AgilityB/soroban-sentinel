@@ -4,6 +4,7 @@ pub mod auth;
 pub mod failover_rpc;
 pub mod key_expr;
 pub mod soroban_rpc;
+pub mod version_guard;
 pub mod xdr_keys;
 
 pub use auth::{
@@ -14,6 +15,10 @@ pub use key_expr::{parse_key_expr, MAX_KEY_EXPR_DEPTH, MAX_KEY_EXPR_LEN};
 pub use soroban_rpc::{
     validate_rpc_url, RetryPolicy, SorobanRpcClient, DEFAULT_BASE_RETRY_DELAY_MS,
     DEFAULT_MAX_RETRIES, MAX_KEYS_PER_REQUEST, MAX_RPC_RESPONSE_BYTES,
+};
+pub use version_guard::{
+    check_compatibility, RpcCapabilities, VersionInfo, MAX_SUPPORTED_PROTOCOL_VERSION,
+    MIN_SUPPORTED_PROTOCOL_VERSION,
 };
 pub use xdr_keys::{
     derive_contract_code_key, derive_contract_instance_key, derive_persistent_key_from_scval,

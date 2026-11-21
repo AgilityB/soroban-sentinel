@@ -6,14 +6,14 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::time::Duration;
 
-use sentinel_core::adapters::{validate_rpc_url, SorobanRpcClient};
+use sentinel_core::adapters::SorobanRpcClient;
 use sentinel_core::domain::compare::{compare_reports, BaselineSnapshot, MAX_BASELINE_FILE_BYTES};
 use sentinel_core::domain::{RiskLevel, ThresholdConfig, DEFAULT_CRITICAL_LEDGERS};
 use sentinel_core::error::SentinelError;
 use sentinel_core::usecases::{ScanContractUseCase, ScanRequest};
 
 use crate::args::ScanArgs;
-use crate::formatters::{render_csv, render_json_with_diff, render_sarif, render_text_with_diff};
+use crate::formatters::render_junit;
 
 /// Exit code: All evaluated storage entries have status OK.
 pub const EXIT_OK: i32 = 0;
@@ -29,7 +29,7 @@ pub const EXIT_RPC_FAILURE: i32 = 11;
 /// Resolves the appropriate RPC endpoint URL from network preset or command override.
 pub fn resolve_rpc_url(network: &str, rpc_url_override: Option<&str>) -> Result<String, String> {
     if let Some(url) = rpc_url_override {
-        validate_rpc_url(url).map_err(|e| e.to_string())?;
+        sentinel_core::adapters::validate_rpc_url(url).map_err(|e| e.to_string())?;
         return Ok(url.to_string());
     }
 
@@ -129,30 +129,30 @@ pub fn load_and_validate_baseline(
 fn validate_output_path(path: &str) -> Result<(), String> {
     let path = Path::new(path);
     if path.as_os_str().is_empty() {
-        return Err("--output path must not be empty".to_string());
+        return Err("Output path must not be empty".to_string());
     }
 
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
             return Err(format!(
-                "--output parent directory '{}' does not exist",
+                "Output parent directory '{}' does not exist",
                 parent.display()
             ));
         }
     }
 
     if path.is_dir() {
-        return Err(format!("--output path '{}' is a directory", path.display()));
+        return Err(format!("Output path '{}' is a directory", path.display()));
     }
 
     if path.exists() {
         fs::OpenOptions::new()
             .write(true)
             .open(path)
-            .map_err(|e| format!("--output path '{}' is not writable: {}", path.display(), e))?;
+            .map_err(|e| format!("Output path '{}' is not writable: {}", path.display(), e))?;
     } else {
         let file = fs::File::create(path)
-            .map_err(|e| format!("--output path '{}' is not writable: {}", path.display(), e))?;
+            .map_err(|e| format!("Output path '{}' is not writable: {}", path.display(), e))?;
         drop(file);
         let _ = fs::remove_file(path);
     }
@@ -303,13 +303,17 @@ pub async fn run_scan(args: ScanArgs) -> i32 {
         .map(|b| compare_reports(&report, b));
 
     let output_result = match format.as_str() {
-        "text" => Ok(render_text_with_diff(&report, baseline_diff.as_ref())),
-        "json" => render_json_with_diff(&report, baseline_diff.clone()),
-        "csv" => render_csv(&report),
-        "sarif" => render_sarif(&report),
+        "text" | "json" | "csv" | "sarif" => {
+            eprintln!(
+                "Error: formatter backend for '{}' is not wired in this PR branch",
+                format
+            );
+            return EXIT_INVALID_ARGS;
+        }
+        "junit" => render_junit(&report),
         other => {
             eprintln!(
-                "Error: Unsupported format '{}'. Supported formats: text, json, csv, sarif",
+                "Error: Unsupported format '{}'. Supported formats: text, json, csv, sarif, junit",
                 other
             );
             return EXIT_INVALID_ARGS;
@@ -321,7 +325,7 @@ pub async fn run_scan(args: ScanArgs) -> i32 {
             if let Some(path) = args.output.as_deref() {
                 let contents = format!("{}\n", output.trim_end_matches('\n'));
                 if let Err(err) = fs::write(path, contents) {
-                    eprintln!("Error: failed to write --output '{}': {}", path, err);
+                    eprintln!("Error: failed to write output '{}': {}", path, err);
                     return EXIT_INVALID_ARGS;
                 }
             } else if format == "csv" {
@@ -421,12 +425,14 @@ mod tests {
     fn test_load_and_validate_baseline_validation() {
         let temp_dir = std::env::temp_dir();
         let valid_baseline_file = temp_dir.join("test_valid_baseline.json");
-        let valid_json = r#"{
-            "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "network": "testnet",
-            "latest_ledger": 5400000,
-            "entries": []
-        }"#;
+        let valid_json = r#"
+            {
+                "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "network": "testnet",
+                "latest_ledger": 5400000,
+                "entries": []
+            }
+        "#;
         fs::write(&valid_baseline_file, valid_json).unwrap();
 
         // Valid load

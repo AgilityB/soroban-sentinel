@@ -507,6 +507,7 @@ mod tests {
             })
             .collect();
         TTLReport {
+            sac_asset_info: None,
             contract_id: "CTEST".to_string(),
             network: "testnet".to_string(),
             latest_ledger: 900,

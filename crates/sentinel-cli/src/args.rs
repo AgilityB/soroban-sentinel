@@ -52,7 +52,7 @@ pub struct ScanArgs {
     #[arg(long, default_value = "testnet", value_name = "NETWORK")]
     pub network: String,
 
-    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "csv" (flat tabular export), or "sarif" (GitHub Code Scanning)
+    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "csv" (flat tabular export), "sarif" (GitHub Code Scanning), or "junit" (JUnit XML)
     #[arg(long, default_value = "text", value_name = "FORMAT")]
     pub format: String,
 

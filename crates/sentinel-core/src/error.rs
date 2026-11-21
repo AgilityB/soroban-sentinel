@@ -29,6 +29,12 @@ pub enum SentinelError {
 
     #[error("Invalid RPC URL: {0}")]
     InvalidRpcUrl(String),
+
+    #[error("RPC protocol version {found} is below the minimum supported version {required}")]
+    UnsupportedProtocol { found: u32, required: u32 },
+
+    #[error("RPC response did not include enough information to verify protocol compatibility")]
+    MissingProtocolInfo,
 }
 
 /// Convenience type alias for `Result<T, SentinelError>`.
