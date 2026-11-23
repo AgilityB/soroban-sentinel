@@ -72,6 +72,8 @@ pub enum Commands {
 
     /// Display network state-archival and contract entry limits
     Network(NetworkArgs),
+    /// Estimate a contract TTL extension's resource limits
+    EstimateGas(EstimateGasArgs),
 }
 
 #[derive(Args, Debug)]
@@ -80,6 +82,26 @@ pub struct DoctorArgs {
     pub rpc_url: Option<String>,
     #[arg(long, default_value = "testnet", value_name = "NETWORK")]
     pub network: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct EstimateGasArgs {
+    #[arg(value_name = "CONTRACT_ID")]
+    pub contract_id: String,
+    #[arg(long = "extend-by", value_name = "LEDGERS")]
+    pub extend_by: u32,
+    #[arg(long, default_value = "testnet", value_name = "NETWORK")]
+    pub network: String,
+    #[arg(long, value_name = "URL", env = "SOROBAN_RPC_URL")]
+    pub rpc_url: Option<String>,
+    #[arg(long = "key", value_name = "SYMBOL")]
+    pub key: Vec<String>,
+    #[arg(long = "key-xdr", value_name = "BASE64_XDR")]
+    pub key_xdr: Vec<String>,
+    #[arg(long = "key-expr", value_name = "EXPR")]
+    pub key_expr: Vec<String>,
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+    pub format: String,
 }
 
 // Avoid Debug implementations that print provider credentials.
@@ -276,7 +298,7 @@ pub struct ScanArgs {
     #[arg(long, default_value = "testnet", value_name = "NETWORK")]
     pub network: String,
 
-    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "csv" (flat tabular export), "parquet" (binary columnar export, requires the `parquet` Cargo feature), or "sarif" (GitHub Code Scanning)
+    /// Output format for scan results: text, json, csv, parquet, sarif, markdown, or pushgateway
     #[arg(long, default_value = "text", value_name = "FORMAT")]
     pub format: String,
 

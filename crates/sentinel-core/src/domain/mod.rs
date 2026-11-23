@@ -20,6 +20,7 @@ pub mod recommend;
 pub mod restore;
 pub mod risk;
 pub(crate) mod scenario;
+pub mod shadow_keys;
 pub mod storage_audit;
 pub mod ttl;
 pub mod upgrade;
@@ -66,6 +67,7 @@ pub use scenario::{
     evaluate_protocol_scenario, NetworkRentParameters, ProtocolScenarioReport, ScenarioEntry,
     ScenarioEntryImpact, ScenarioError,
 };
+pub use shadow_keys::{detect_shadowed_keys, KeyCollisionKind, KeyCollisionWarning};
 pub use storage_audit::{
     analyze_storage_entry, estimate_annual_rent_savings, AuditEntry, AuditFinding,
     AuditFindingKind, StorageAuditReport, MAX_SOROBAN_ENTRY_BYTES,
