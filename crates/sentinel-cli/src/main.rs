@@ -28,6 +28,10 @@ async fn main() {
         Commands::Bundle(args) => commands::run_bundle(args).await,
         Commands::InstallService(args) => commands::run_install_service(args),
         Commands::Restore(args) => commands::run_restore(args).await,
+        Commands::Completions(args) => match commands::run_completions(args) {
+            Ok(()) => 0,
+            Err(_) => 10,
+        },
     };
 
     // Flush buffered spans/metrics before exiting, since `process::exit`

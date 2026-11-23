@@ -1,6 +1,7 @@
 //! Output formatters for scan reports.
 
 pub mod json;
+pub mod junit;
 #[cfg(feature = "parquet")]
 pub mod parquet;
 pub mod sarif;
@@ -8,6 +9,7 @@ pub mod tabular;
 pub mod text;
 
 pub use json::{render_json, render_json_with_diff, JsonEntryReport, JsonSummary, JsonTTLReport};
+pub use junit::{render_junit, JUnitReport, JUnitSummary, JUnitTestCase};
 #[cfg(feature = "parquet")]
 pub use parquet::render_parquet;
 pub use sarif::render_sarif;

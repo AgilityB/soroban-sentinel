@@ -26,6 +26,7 @@ parquet = ["dep:parquet", "dep:arrow-array", "dep:arrow-schema"]
 [dependencies]
 sentinel-core.workspace = true
 clap.workspace = true
+clap_complete = "4.5"
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

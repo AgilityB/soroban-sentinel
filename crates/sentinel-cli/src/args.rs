@@ -38,6 +38,9 @@ pub enum Commands {
 
     /// Generate a systemd or launchd service definition for autonomous watching
     InstallService(InstallServiceArgs),
+
+    /// Generate shell completion scripts for the `sentinel` CLI
+    Completions(CompletionsArgs),
 }
 
 /// Command-line arguments for the `sentinel scan` command.
@@ -265,6 +268,40 @@ pub struct InstallServiceArgs {
     /// Directory in which to write the generated service file
     #[arg(long, value_name = "DIR")]
     pub output_dir: Option<std::path::PathBuf>,
+}
+/// Shell type for completion script generation.
+#[derive(clap::Parser, Debug, Clone, Copy)]
+pub enum Shell {
+    /// Bash completion script
+    Bash,
+    /// Zsh completion script
+    Zsh,
+    /// Fish completion script
+    Fish,
+    /// PowerShell completion script
+    PowerShell,
+    /// Elvish completion script
+    Elvish,
+}
+
+impl std::fmt::Display for Shell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Shell::Bash => write!(f, "bash"),
+            Shell::Zsh => write!(f, "zsh"),
+            Shell::Fish => write!(f, "fish"),
+            Shell::PowerShell => write!(f, "powershell"),
+            Shell::Elvish => write!(f, "elvish"),
+        }
+    }
+}
+
+/// Command-line arguments for the `sentinel completions` command.
+#[derive(Args, Debug, Clone)]
+pub struct CompletionsArgs {
+    /// Target shell to generate completions for
+    #[arg(value_name = "SHELL")]
+    pub shell: String,
 }
 
 #[cfg(test)]
