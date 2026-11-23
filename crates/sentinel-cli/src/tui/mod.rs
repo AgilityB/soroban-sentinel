@@ -508,9 +508,14 @@ mod tests {
             .collect();
         TTLReport {
             contract_id: "CTEST".to_string(),
+            sac_asset_info: None,
+            contract_code_hash: None,
+            contract_bytecode_size: None,
+            contract_upgrade: None,
             network: "testnet".to_string(),
             latest_ledger: 900,
             ledger_velocity_seconds: 5.0,
+            burn_rate: Default::default(),
             entries,
             overall_status: RiskLevel::Ok,
             archival_recommendations: Vec::new(),

@@ -93,6 +93,7 @@ The following table distinguishes between MVP release features and post-MVP road
 | **CLI** | Flat Parquet Export (`--format parquet`, `--output`) | N/A | **Available (optional `parquet` feature)** | Issue #55 |
 | **CLI (MVP)** | Explicit Persistent Key Verification (`--key`, `--key-xdr`) | Protocol 20+ | **Completed (v0.1.0)** | [MVP Scope](docs/MVP_SCOPE.md#1-mvp-feature-set-v010) |
 | **CLI** | Interactive TUI Dashboard (`sentinel scan --tui`) | N/A | **Available (optional `tui` feature)** | Issue #42 |
+| **CLI** | Offline Snapshot Replay (`sentinel scan --snapshot <PATH>`) | N/A | **Available** | Issue #70 |
 | **CLI** | Markdown Output (`--format markdown`) | N/A | **Planned (Sprint 3)** | [Roadmap](docs/IMPLEMENTATION_ROADMAP.md#phase-3) |
 | **CLI** | Rent Simulation (`sentinel forecast <ID>`) | Protocol 20+ | **Planned (Sprint 3)** | [Roadmap](docs/IMPLEMENTATION_ROADMAP.md#phase-3) |
 | **CLI** | Archived State Restoration (`sentinel restore <ID>`) | CAP-0046 | **Available** | Issue #40 |
@@ -192,6 +193,28 @@ sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
 | `bytes:` | Hex-encoded raw byte array | `bytes:deadbeef`, `bytes:0x1234` |
 | `vec[...]` | Nested composite vector (up to 16 nesting levels) | `vec[sym:Allowance, addr:G..., addr:C...]` |
 
+### Offline Snapshot Replay (`--snapshot`)
+Use a deterministic `.sentinel-snap` archive to debug TTL calculations, regression
+diffing, and risk evaluation without RPC access:
+
+```bash
+# Replay a previously recorded snapshot
+sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
+  --network testnet \
+  --snapshot state.sentinel-snap \
+  --format json
+```
+
+Snapshots store the network passphrase, protocol version, latest ledger,
+ledger-close velocity, and every queried ledger entry. Replay validates the
+passphrase and format version before use, returns entries in deterministic order,
+and produces the same `TTLReport` as the live scan that recorded it. Use the same
+`--network` that produced the snapshot; `--snapshot` cannot be combined with
+`--rpc-url`, `--rpc-timeout`, `--rpc-max-retries`, `--baseline`, `--format csv`,
+or `--format parquet`. Unset `SOROBAN_RPC_URL` when replaying offline because an
+RPC URL from the environment is treated as a conflicting flag. Invalid or
+corrupt snapshots exit with code 10.
+
 ### Baseline Scan Comparison & Regression Gating (`--baseline`)
 Track storage decay and detect changes between inspection intervals by comparing a scan against a previous JSON report:
 
@@ -270,6 +293,10 @@ sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
 # Override measured ledger close velocity (1.0–60.0s)
 sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
   --ledger-seconds 5.8
+
+# Measure real burn velocity from the last 250 ledger close timestamps
+sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
+  --sample-window 250
 ```
 
 ### OpenTelemetry OTLP Export (`--otlp-endpoint`)
@@ -421,7 +448,7 @@ sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
 ```
 
 ### Standard Process Exit Codes
-`sentinel` sets standard UNIX exit codes suitable for CI/CD gates and automation:
+`sentinel scan` uses the following exit codes for automation:
 
 | Exit Code | Meaning | Condition |
 | :---: | :--- | :--- |
@@ -430,6 +457,44 @@ sentinel scan CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC \
 | `2` | **Critical / Archived / Regression** | One or more evaluated entries have `status == CRITICAL` or `ARCHIVED`, or `--fail-on-regression` triggered by status worsening / entry removal |
 | `10` | **Invalid Arguments** | Malformed contract Strkey, unrecognized network, or invalid parameters |
 | `11` | **RPC Failure** | Network timeout, connection refused, or HTTP 5xx/4xx RPC communication failure |
+
+### Diagnose an RPC endpoint
+
+```sh
+sentinel doctor --network testnet
+sentinel doctor --network mainnet --rpc-url https://your-rpc.example
+```
+
+The diagnostic table shows round-trip latency, node health, ledger height,
+network identity, and Soroban protocol compatibility. Critical probe failures
+exit with status 1.
+
+### Watch a contract and send incident alerts
+
+```sh
+sentinel watch "$CONTRACT_ID" --network testnet --key Counter --interval 60
+```
+
+Set `PAGERDUTY_ROUTING_KEY` or `OPSGENIE_API_KEY` in the process environment to
+enable incident delivery. The corresponding flags are `--pagerduty-routing-key`
+and `--opsgenie-api-key`. Alert identifiers derive from the network, contract
+address, and canonical ledger key XDR. Warning risk produces a warning alert,
+while critical or archived risk produces a critical alert. A watched entry
+returning to OK resolves its alert. The watcher tracks successfully delivered
+alerts during its current process lifetime.
+
+### Core submission and key discovery
+
+`TransactionSubmitter::submit` takes signed envelope XDR in base64, the network
+passphrase, and a submission policy. It computes the hash locally and polls for
+confirmation. A timeout leaves the outcome unknown and returns the hash for
+follow-up.
+
+`discover_storage_keys` takes a contract address and decoded `ContractCodeEntry`.
+It returns persistent and temporary candidates inferred from storage-named
+types in the WASM spec. A caller can encode the returned `LedgerKey` values for
+`getLedgerEntries` to check existence. Private or dynamic keys may be absent
+from the spec and still require explicit input.
 
 ## 6. Repository Documentation Suite
 

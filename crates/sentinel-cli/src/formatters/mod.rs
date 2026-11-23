@@ -2,6 +2,7 @@
 
 pub mod json;
 pub mod junit;
+pub mod markdown;
 #[cfg(feature = "parquet")]
 pub mod parquet;
 pub mod sarif;
@@ -10,6 +11,7 @@ pub mod text;
 
 pub use json::{render_json, render_json_with_diff, JsonEntryReport, JsonSummary, JsonTTLReport};
 pub use junit::{render_junit, JUnitReport, JUnitSummary, JUnitTestCase};
+pub use markdown::render_markdown;
 #[cfg(feature = "parquet")]
 pub use parquet::render_parquet;
 pub use sarif::render_sarif;
