@@ -57,6 +57,8 @@ async fn main() {
     let telemetry = telemetry::init(&TelemetryConfig::resolve(cli.otlp_endpoint.as_deref()));
 
     let exit_code = match cli.command {
+        Commands::ExportOpenapi(args) => commands::run_export_openapi(args),
+        Commands::HealthMatrix(args) => commands::run_health_matrix(args).await,
         Commands::Check(args) => commands::run_check(args).await,
         Commands::CostMatrix(args) => commands::run_cost_matrix(args).await,
         Commands::Scan(args) => commands::run_scan(*args).await,
