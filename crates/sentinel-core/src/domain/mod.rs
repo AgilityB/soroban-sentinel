@@ -21,6 +21,7 @@ pub mod planner;
 pub mod probabilistic_ttl;
 pub mod recommend;
 pub mod restore;
+pub mod restore_fee;
 pub mod risk;
 pub(crate) mod scenario;
 pub mod storage_audit;
@@ -72,6 +73,7 @@ pub use recommend::{
     RecommendationPlan, TTLRecommendation, CONSERVATIVE_DEFAULT_MAX_ENTRY_TTL,
 };
 pub use restore::{plan_restore_footprint, RestoreError, RestorePlan};
+pub use restore_fee::{RestoreFee, RestoreFeeCalculator, RestoreFeeError};
 pub use risk::{
     evaluate_risk, evaluate_risk_for_durability, RiskLevel, ThresholdConfig, ThresholdOverride,
     DEFAULT_CRITICAL_LEDGERS, DEFAULT_WARNING_LEDGERS,
