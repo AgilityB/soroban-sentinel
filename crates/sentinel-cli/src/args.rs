@@ -29,6 +29,8 @@ pub enum Commands {
     TopConsumers(TopConsumersArgs),
     /// Check Soroban RPC connectivity, network identity, and protocol support
     Doctor(DoctorArgs),
+    /// Measure the connection and response latency of a Soroban RPC endpoint
+    TraceRoute(TraceRouteArgs),
     /// Monitor one contract and notify configured incident providers
     Watch(Box<WatchArgs>),
 
@@ -72,6 +74,18 @@ pub enum Commands {
 
     /// Display network state-archival and contract entry limits
     Network(NetworkArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TraceRouteArgs {
+    #[arg(long, value_name = "URL")]
+    pub rpc_url: String,
+    /// Emit timing measurements as JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Disable ANSI color codes in terminal output
+    #[arg(long)]
+    pub no_color: bool,
 }
 
 #[derive(Args, Debug)]
