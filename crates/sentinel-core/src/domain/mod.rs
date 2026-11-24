@@ -18,6 +18,7 @@ pub mod key_pattern;
 pub mod multisig;
 pub mod network_limits;
 pub mod planner;
+pub mod probabilistic_ttl;
 pub mod recommend;
 pub mod restore;
 pub mod risk;
@@ -62,6 +63,9 @@ pub use network_limits::NetworkLimits;
 pub use planner::{
     plan_extension, plan_extension_with_cost, DeferralReason, DeferredExtension, ExtensionPlan,
     ExtensionPlanRequest, PlannedExtension,
+};
+pub use probabilistic_ttl::{
+    estimate_probabilistic_lifetime, LifetimePercentiles, VelocityDistribution, VelocityModel,
 };
 pub use recommend::{
     build_recommendation_plan, calculate_extend_to, shell_quote, RecommendationAction,
