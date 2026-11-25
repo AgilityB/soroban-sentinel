@@ -15,6 +15,7 @@ pub mod envelope_packer;
 pub mod fee_bump;
 pub mod footprint;
 pub mod histogram;
+pub mod init_footprint;
 pub mod key_pattern;
 pub mod multisig;
 pub mod network_limits;
@@ -116,6 +117,7 @@ pub use durability_migration::{
     DurabilityMigrationAnalysis, MigrationRequest, RentAnalysisError, RentRates,
 };
 pub use histogram::{ExpirationBucket, ExpirationHistogram, HistogramBucket};
+pub use init_footprint::{predict_initial_footprint, InitialFootprintEstimate};
 pub use multisig::{
     required_cosigners, verify_bumper_authority, AccountSignerConfig, AccountThresholds,
     MultisigError, MultisigVerificationResult, SignerEntry,

@@ -5,6 +5,10 @@ use sentinel_core::{RiskLevel, StorageEntry, TTLReport};
 use crate::{
     adapters::alert_telegram::{
         SentinelEvent, TelegramAlertDispatcher, ENV_TELEGRAM_BOT_TOKEN, ENV_TELEGRAM_CHAT_ID,
+    adapters::alert_teams::TeamsAlertDispatcher,
+    alerts::{
+        datadog::{DatadogAdapter, DatadogSite},
+        incident::{IncidentDispatcher, Provider},
     },
     alerts::incident::{dedup_key, IncidentDispatcher, Provider},
     args::WatchArgs,
@@ -115,6 +119,18 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
         }
     };
 
+    let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
+        match TeamsAlertDispatcher::new(webhook_url) {
+            Ok(dispatcher) => Some(dispatcher),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return EXIT_INVALID_ARGS;
+            }
+        }
+    } else {
+        None
+    };
+
     let providers = [
         args.pagerduty_routing_key
             .map(|routing_key| Provider::PagerDuty {
@@ -176,6 +192,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                             .await
                     {
                         eprintln!("Watch Telegram notification failed: {error}");
+                    }
+                }
+                if let Some(teams) = teams.as_mut() {
+                    if let Err(error) = teams.observe(&report).await {
+                        eprintln!("Teams notification failed: {error}");
                     }
                 }
             }

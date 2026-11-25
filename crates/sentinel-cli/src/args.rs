@@ -57,6 +57,9 @@ pub enum Commands {
     /// Generate a sentinel.toml fleet manifest
     Init(InitArgs),
 
+    /// Generate Docker deployment files
+    GenerateDocker(GenerateDockerArgs),
+
     /// Encode a Soroban storage key expression as XDR
     KeyEncode(KeyEncodeArgs),
 
@@ -69,11 +72,22 @@ pub enum Commands {
     /// Compare a contract's storage health across two Stellar networks
     DiffNetworks(DiffNetworksArgs),
 
+    /// Compare storage keys between two saved scan reports
+    KeyDiff(KeyDiffArgs),
+
     /// Estimate the fee for extending a contract footprint TTL
     Forecast(ForecastArgs),
 
     /// Display network state-archival and contract entry limits
     Network(NetworkArgs),
+}
+
+/// Command-line arguments for `sentinel generate-docker`.
+#[derive(Args, Debug, Clone)]
+pub struct GenerateDockerArgs {
+    /// Directory where Docker deployment files are written
+    #[arg(long = "out-dir", default_value = ".", value_name = "PATH")]
+    pub out_dir: std::path::PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -122,6 +136,19 @@ pub struct WatchArgs {
         allow_hyphen_values = true
     )]
     pub telegram_chat_id: Option<String>,
+    pub datadog_api_key: Option<String>,
+    /// Datadog intake site: "datadoghq.com" (US, default) or "datadoghq.eu" (EU)
+    #[arg(long, default_value = "datadoghq.com", value_name = "SITE",
+          value_parser = ["datadoghq.com", "datadoghq.eu"])]
+    pub datadog_site: String,
+    /// Microsoft Teams incoming webhook URL for Adaptive Card alerts
+    #[arg(
+        long = "alert-teams",
+        env = "TEAMS_WEBHOOK_URL",
+        hide_env_values = true,
+        value_name = "WEBHOOK_URL"
+    )]
+    pub alert_teams: Option<String>,
 }
 
 impl std::fmt::Debug for WatchArgs {
@@ -239,6 +266,23 @@ pub struct DiffReportsArgs {
     /// Return exit code 2 when a risk regression or removal is found
     #[arg(long)]
     pub fail_on_regression: bool,
+}
+
+/// Arguments for `sentinel key-diff`.
+#[derive(Args, Debug, Clone)]
+pub struct KeyDiffArgs {
+    /// Earlier scan report
+    #[arg(long, value_name = "SCAN_A.json")]
+    pub before: std::path::PathBuf,
+    /// Later scan report
+    #[arg(long, value_name = "SCAN_B.json")]
+    pub after: std::path::PathBuf,
+    /// Output format
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+    pub format: String,
+    /// Disable ANSI color codes in text output
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 /// Command-line arguments for `sentinel diff-networks`.
