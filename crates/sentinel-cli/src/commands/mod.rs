@@ -14,6 +14,7 @@ pub mod network;
 pub mod restore;
 pub mod scan;
 pub mod service;
+pub mod trace_route;
 #[cfg(feature = "tui")]
 pub mod tui;
 

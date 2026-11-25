@@ -7,7 +7,7 @@ use crate::{
     alerts::incident::{IncidentDispatcher, Provider},
     args::WatchArgs,
     commands::{scan::prepare_scan, EXIT_INVALID_ARGS},
-    formatters::{render_json, render_text},
+    formatters::{render_json, render_text_with_options},
 };
 
 /// Builds a configured [`MattermostAlertDispatcher`] when `--alert-mattermost` is supplied.
@@ -95,13 +95,33 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
         }
     };
 
+    // Build the optional Datadog adapter when credentials are provided.
+    let mut datadog: Option<DatadogAdapter> = if let Some(api_key) = args.datadog_api_key {
+        let site = match DatadogSite::parse(&args.datadog_site) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error: {e}");
+                return EXIT_INVALID_ARGS;
+            }
+        };
+        match DatadogAdapter::new(api_key, &site) {
+            Ok(adapter) => Some(adapter),
+            Err(_) => {
+                eprintln!("Error: could not initialize Datadog HTTP client");
+                return EXIT_INVALID_ARGS;
+            }
+        }
+    } else {
+        None
+    };
+
     loop {
         match usecase.execute_with_keys(request.clone()).await {
             Ok((report, keys)) => {
                 let output = if format == "json" {
                     render_json(&report)
                 } else {
-                    Ok(render_text(&report))
+                    Ok(render_text_with_options(&report, args.scan.no_color))
                 };
                 match output {
                     Ok(output) => println!("{output}"),
