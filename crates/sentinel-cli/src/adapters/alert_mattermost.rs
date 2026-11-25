@@ -385,8 +385,8 @@ fn validate_webhook_url(raw: &str) -> Result<Url, MattermostError> {
         ));
     }
 
-    let parsed = Url::parse(trimmed)
-        .map_err(|err| MattermostError::InvalidWebhookUrl(err.to_string()))?;
+    let parsed =
+        Url::parse(trimmed).map_err(|err| MattermostError::InvalidWebhookUrl(err.to_string()))?;
 
     let is_loopback = parsed.host_str().is_some_and(|host| {
         host.eq_ignore_ascii_case("localhost")
@@ -450,7 +450,9 @@ fn render_decaying_keys_table(entries: &[&StorageEntryReport]) -> String {
 
     if entries.len() > MAX_TABLE_ENTRIES {
         let omitted = entries.len() - MAX_TABLE_ENTRIES;
-        out.push_str(&format!("\n_...and {omitted} additional decaying key(s) omitted._"));
+        out.push_str(&format!(
+            "\n_...and {omitted} additional decaying key(s) omitted._"
+        ));
     }
 
     out.trim_end().to_string()
