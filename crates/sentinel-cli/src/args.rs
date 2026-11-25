@@ -57,6 +57,9 @@ pub enum Commands {
     /// Generate a sentinel.toml fleet manifest
     Init(InitArgs),
 
+    /// Generate Docker deployment files
+    GenerateDocker(GenerateDockerArgs),
+
     /// Encode a Soroban storage key expression as XDR
     KeyEncode(KeyEncodeArgs),
 
@@ -77,6 +80,14 @@ pub enum Commands {
 
     /// Display network state-archival and contract entry limits
     Network(NetworkArgs),
+}
+
+/// Command-line arguments for `sentinel generate-docker`.
+#[derive(Args, Debug, Clone)]
+pub struct GenerateDockerArgs {
+    /// Directory where Docker deployment files are written
+    #[arg(long = "out-dir", default_value = ".", value_name = "PATH")]
+    pub out_dir: std::path::PathBuf,
 }
 
 #[derive(Args, Debug)]

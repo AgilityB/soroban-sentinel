@@ -83,6 +83,7 @@ async fn main() {
         Commands::Restore(args) => commands::run_restore(args).await,
         Commands::InstallService(args) => commands::run_install_service(args),
         Commands::Init(args) => commands::run_init(args),
+        Commands::GenerateDocker(args) => commands::run_generate_docker(args),
         Commands::KeyEncode(args) => commands::run_key_encode(args),
         Commands::KeyDecode(args) => commands::run_key_decode(args),
         Commands::DiffReports(args) => commands::run_diff_reports(args),
