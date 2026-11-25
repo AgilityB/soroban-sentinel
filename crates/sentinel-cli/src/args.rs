@@ -980,3 +980,29 @@ mod tests {
         }
     }
 }
+
+#[derive(Args, Debug)]
+pub struct ExportOpenapiArgs {
+    #[arg(long, default_value = "json", value_parser = ["json", "yaml"])]
+    pub format: String,
+}
+
+#[derive(Args, Debug)]
+pub struct HealthMatrixArgs {
+    #[arg(long, value_name = "PATH")]
+    pub manifest: std::path::PathBuf,
+    /// Show only contracts scoring below this minimum.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+    pub min_score: Option<u8>,
+    /// Persistent-key count consuming all 20 count-headroom points.
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..))]
+    pub entry_budget: u32,
+    /// Largest-entry byte size consuming all 20 storage-headroom points.
+    #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(u64).range(1..))]
+    pub storage_budget_bytes: u64,
+    /// Supply a planning rent rate together with its denominator.
+    #[arg(long, requires = "rent_denominator")]
+    pub rent_fee_per_kib: Option<u64>,
+    #[arg(long, requires = "rent_fee_per_kib", value_parser = clap::value_parser!(u64).range(1..))]
+    pub rent_denominator: Option<u64>,
+}

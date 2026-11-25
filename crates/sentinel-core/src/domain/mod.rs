@@ -121,10 +121,10 @@ pub use wasm_imports::{
 };
 
 pub mod grace_period;
-pub use grace_period::{calculate_grace_window, GracePeriodStatus, NetworkConfig};
 pub use durability_migration::{
     DurabilityMigrationAnalysis, MigrationRequest, RentAnalysisError, RentRates,
 };
+pub use grace_period::{calculate_grace_window, GracePeriodStatus, NetworkConfig};
 pub use histogram::{ExpirationBucket, ExpirationHistogram, HistogramBucket};
 pub use init_footprint::{predict_initial_footprint, InitialFootprintEstimate};
 pub use multisig::{
