@@ -69,6 +69,9 @@ pub enum Commands {
     /// Compare a contract's storage health across two Stellar networks
     DiffNetworks(DiffNetworksArgs),
 
+    /// Compare storage keys between two saved scan reports
+    KeyDiff(KeyDiffArgs),
+
     /// Estimate the fee for extending a contract footprint TTL
     Forecast(ForecastArgs),
 
@@ -240,6 +243,23 @@ pub struct DiffReportsArgs {
     /// Return exit code 2 when a risk regression or removal is found
     #[arg(long)]
     pub fail_on_regression: bool,
+}
+
+/// Arguments for `sentinel key-diff`.
+#[derive(Args, Debug, Clone)]
+pub struct KeyDiffArgs {
+    /// Earlier scan report
+    #[arg(long, value_name = "SCAN_A.json")]
+    pub before: std::path::PathBuf,
+    /// Later scan report
+    #[arg(long, value_name = "SCAN_B.json")]
+    pub after: std::path::PathBuf,
+    /// Output format
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+    pub format: String,
+    /// Disable ANSI color codes in text output
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 /// Command-line arguments for `sentinel diff-networks`.
