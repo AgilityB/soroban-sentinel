@@ -90,6 +90,7 @@ async fn main() {
         Commands::Doctor(args) => commands::doctor::run_doctor(args).await,
         Commands::Watch(args) => commands::watch::run_watch(*args).await,
         Commands::Forecast(args) => commands::run_forecast(args).await,
+        Commands::Trend(args) => commands::run_trend(args),
     };
 
     // Flush buffered spans/metrics before exiting, since `process::exit`

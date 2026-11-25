@@ -72,6 +72,9 @@ pub enum Commands {
 
     /// Display network state-archival and contract entry limits
     Network(NetworkArgs),
+
+    /// Analyze historical scan snapshots to project TTL decay and threshold crossings
+    Trend(TrendArgs),
 }
 
 #[derive(Args, Debug)]
@@ -666,6 +669,30 @@ pub struct InstallServiceArgs {
     pub output_dir: Option<std::path::PathBuf>,
 }
 
+/// Command-line arguments for `sentinel trend`.
+#[derive(Args, Debug, Clone)]
+pub struct TrendArgs {
+    /// Directory containing historical JSON scan reports
+    #[arg(long = "input-dir", value_name = "DIR")]
+    pub input_dir: std::path::PathBuf,
+
+    /// Optional contract ID filter (required when input directory contains multiple contracts)
+    #[arg(long, value_name = "ID")]
+    pub contract: Option<String>,
+
+    /// Warning threshold in ledgers for projecting threshold crossings
+    #[arg(long, default_value_t = 120960, value_name = "LEDGERS")]
+    pub warning_threshold: u32,
+
+    /// Critical threshold in ledgers for projecting threshold crossings
+    #[arg(long, value_name = "LEDGERS")]
+    pub critical_threshold: Option<u32>,
+
+    /// Output format: "text" (ASCII table) or "json"
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+    pub format: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -826,6 +853,47 @@ mod tests {
                 assert_eq!(restore.format, "json");
             }
             _ => panic!("expected restore command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_trend_defaults_and_flags() {
+        let defaults = Cli::parse_from(["sentinel", "trend", "--input-dir", "./scans"]);
+        match defaults.command {
+            Commands::Trend(trend) => {
+                assert_eq!(trend.input_dir, std::path::PathBuf::from("./scans"));
+                assert!(trend.contract.is_none());
+                assert_eq!(trend.warning_threshold, 120960);
+                assert!(trend.critical_threshold.is_none());
+                assert_eq!(trend.format, "text");
+            }
+            _ => panic!("expected trend command"),
+        }
+
+        let contract = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+        let custom = Cli::parse_from([
+            "sentinel",
+            "trend",
+            "--input-dir",
+            "/tmp/history",
+            "--contract",
+            contract,
+            "--warning-threshold",
+            "100000",
+            "--critical-threshold",
+            "25000",
+            "--format",
+            "json",
+        ]);
+        match custom.command {
+            Commands::Trend(trend) => {
+                assert_eq!(trend.input_dir, std::path::PathBuf::from("/tmp/history"));
+                assert_eq!(trend.contract.as_deref(), Some(contract));
+                assert_eq!(trend.warning_threshold, 100000);
+                assert_eq!(trend.critical_threshold, Some(25000));
+                assert_eq!(trend.format, "json");
+            }
+            _ => panic!("expected trend command"),
         }
     }
 }
