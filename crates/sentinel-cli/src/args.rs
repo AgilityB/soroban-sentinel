@@ -29,6 +29,8 @@ pub enum Commands {
     TopConsumers(TopConsumersArgs),
     /// Check Soroban RPC connectivity, network identity, and protocol support
     Doctor(DoctorArgs),
+    /// Measure the connection and response latency of a Soroban RPC endpoint
+    TraceRoute(TraceRouteArgs),
     /// Monitor one contract and notify configured incident providers
     Watch(Box<WatchArgs>),
 
@@ -55,6 +57,9 @@ pub enum Commands {
     /// Generate a sentinel.toml fleet manifest
     Init(InitArgs),
 
+    /// Generate Docker deployment files
+    GenerateDocker(GenerateDockerArgs),
+
     /// Encode a Soroban storage key expression as XDR
     KeyEncode(KeyEncodeArgs),
 
@@ -67,6 +72,9 @@ pub enum Commands {
     /// Compare a contract's storage health across two Stellar networks
     DiffNetworks(DiffNetworksArgs),
 
+    /// Compare storage keys between two saved scan reports
+    KeyDiff(KeyDiffArgs),
+
     /// Estimate the fee for extending a contract footprint TTL
     Forecast(ForecastArgs),
 
@@ -76,12 +84,35 @@ pub enum Commands {
     EstimateGas(EstimateGasArgs),
 }
 
+/// Command-line arguments for `sentinel generate-docker`.
+#[derive(Args, Debug, Clone)]
+pub struct GenerateDockerArgs {
+    /// Directory where Docker deployment files are written
+    #[arg(long = "out-dir", default_value = ".", value_name = "PATH")]
+    pub out_dir: std::path::PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct TraceRouteArgs {
+    #[arg(long, value_name = "URL")]
+    pub rpc_url: String,
+    /// Emit timing measurements as JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Disable ANSI color codes in terminal output
+    #[arg(long)]
+    pub no_color: bool,
+}
+
 #[derive(Args, Debug)]
 pub struct DoctorArgs {
     #[arg(long, value_name = "URL", env = "SOROBAN_RPC_URL")]
     pub rpc_url: Option<String>,
     #[arg(long, default_value = "testnet", value_name = "NETWORK")]
     pub network: String,
+    /// Disable ANSI color codes in text output (also honored via the NO_COLOR environment variable)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -116,6 +147,26 @@ pub struct WatchArgs {
     pub pagerduty_routing_key: Option<String>,
     #[arg(long, env = "OPSGENIE_API_KEY", hide_env_values = true)]
     pub opsgenie_api_key: Option<String>,
+    /// Datadog API key for metrics and events submission
+    #[arg(
+        long,
+        env = "DATADOG_API_KEY",
+        hide_env_values = true,
+        value_name = "KEY"
+    )]
+    pub datadog_api_key: Option<String>,
+    /// Datadog intake site: "datadoghq.com" (US, default) or "datadoghq.eu" (EU)
+    #[arg(long, default_value = "datadoghq.com", value_name = "SITE",
+          value_parser = ["datadoghq.com", "datadoghq.eu"])]
+    pub datadog_site: String,
+    /// Microsoft Teams incoming webhook URL for Adaptive Card alerts
+    #[arg(
+        long = "alert-teams",
+        env = "TEAMS_WEBHOOK_URL",
+        hide_env_values = true,
+        value_name = "WEBHOOK_URL"
+    )]
+    pub alert_teams: Option<String>,
 }
 
 impl std::fmt::Debug for WatchArgs {
@@ -235,6 +286,23 @@ pub struct DiffReportsArgs {
     pub fail_on_regression: bool,
 }
 
+/// Arguments for `sentinel key-diff`.
+#[derive(Args, Debug, Clone)]
+pub struct KeyDiffArgs {
+    /// Earlier scan report
+    #[arg(long, value_name = "SCAN_A.json")]
+    pub before: std::path::PathBuf,
+    /// Later scan report
+    #[arg(long, value_name = "SCAN_B.json")]
+    pub after: std::path::PathBuf,
+    /// Output format
+    #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+    pub format: String,
+    /// Disable ANSI color codes in text output
+    #[arg(long = "no-color")]
+    pub no_color: bool,
+}
+
 /// Command-line arguments for `sentinel diff-networks`.
 #[derive(Args, Debug, Clone)]
 pub struct DiffNetworksArgs {
@@ -299,8 +367,13 @@ pub struct ScanArgs {
     pub network: String,
 
     /// Output format for scan results: text, json, csv, parquet, sarif, markdown, or pushgateway
+    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "ndjson" (line-delimited JSON per storage entry), "csv" (flat tabular export), "parquet" (binary columnar export, requires the `parquet` Cargo feature), "sarif" (GitHub Code Scanning), or "markdown"
     #[arg(long, default_value = "text", value_name = "FORMAT")]
     pub format: String,
+
+    /// Disable ANSI color codes in text output (also honored via the NO_COLOR environment variable)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 
     /// Write report output to a file instead of stdout (existing files are overwritten)
     #[arg(long, value_name = "PATH")]
@@ -528,6 +601,10 @@ pub struct CheckArgs {
     /// Report format
     #[arg(long, default_value = "text", value_parser = ["text", "json"])]
     pub format: String,
+
+    /// Disable ANSI color codes in text output (also honored via the NO_COLOR environment variable)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 /// Shared selection for read-only contract entry inspection.
@@ -708,6 +785,7 @@ mod tests {
                 );
                 assert_eq!(scan.network, "testnet");
                 assert_eq!(scan.format, "text");
+                assert!(!scan.no_color);
                 assert!(scan.output.is_none());
                 assert_eq!(scan.threshold, 120960);
                 assert!(scan.rpc_url.is_none());
@@ -738,7 +816,8 @@ mod tests {
             "--network",
             "mainnet",
             "--format",
-            "json",
+            "ndjson",
+            "--no-color",
             "--output",
             "report.csv",
             "--threshold",
@@ -781,7 +860,8 @@ mod tests {
                     Some("https://soroban-testnet.stellar.org")
                 );
                 assert_eq!(scan.network, "mainnet");
-                assert_eq!(scan.format, "json");
+                assert_eq!(scan.format, "ndjson");
+                assert!(scan.no_color);
                 assert_eq!(scan.output.as_deref(), Some("report.csv"));
                 assert_eq!(scan.threshold, 50000);
                 assert_eq!(scan.key, vec!["COUNTER", "ADMIN"]);
