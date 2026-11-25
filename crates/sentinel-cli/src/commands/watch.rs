@@ -5,6 +5,11 @@ use sentinel_core::AlertMinLevel;
 use crate::{
     adapters::alert_mattermost::MattermostAlertDispatcher,
     alerts::incident::{IncidentDispatcher, Provider},
+    adapters::alert_teams::TeamsAlertDispatcher,
+    alerts::{
+        datadog::{DatadogAdapter, DatadogSite},
+        incident::{IncidentDispatcher, Provider},
+    },
     args::WatchArgs,
     commands::{scan::prepare_scan, EXIT_INVALID_ARGS},
     formatters::{render_json, render_text_with_options},
@@ -65,6 +70,18 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
             eprintln!("Error: {error}");
             return EXIT_INVALID_ARGS;
         }
+    };
+
+    let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
+        match TeamsAlertDispatcher::new(webhook_url) {
+            Ok(dispatcher) => Some(dispatcher),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return EXIT_INVALID_ARGS;
+            }
+        }
+    } else {
+        None
     };
 
     let providers = [
@@ -135,6 +152,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 if let Some(dispatcher) = mattermost_dispatcher.as_ref() {
                     if let Err(error) = dispatcher.dispatch(&report).await {
                         eprintln!("Watch Mattermost notification failed: {error}");
+                    }
+                }
+                if let Some(teams) = teams.as_mut() {
+                    if let Err(error) = teams.observe(&report).await {
+                        eprintln!("Teams notification failed: {error}");
                     }
                 }
             }

@@ -6,3 +6,4 @@ pub use alert_mattermost::{
     MattermostAlertDispatcher, MattermostAttachment, MattermostError, MattermostField,
     MattermostPayload, MattermostProps, COLOR_CRITICAL, COLOR_WARN,
 };
+pub mod alert_teams;
