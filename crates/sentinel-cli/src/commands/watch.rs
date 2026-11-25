@@ -3,14 +3,16 @@ use std::{collections::HashMap, time::Duration};
 use sentinel_core::{RiskLevel, StorageEntry, TTLReport};
 
 use crate::{
-    adapters::alert_telegram::{
-        SentinelEvent, TelegramAlertDispatcher, ENV_TELEGRAM_BOT_TOKEN, ENV_TELEGRAM_CHAT_ID,
-    adapters::alert_teams::TeamsAlertDispatcher,
+    adapters::{
+        alert_teams::TeamsAlertDispatcher,
+        alert_telegram::{
+            SentinelEvent, TelegramAlertDispatcher, ENV_TELEGRAM_BOT_TOKEN, ENV_TELEGRAM_CHAT_ID,
+        },
+    },
     alerts::{
         datadog::{DatadogAdapter, DatadogSite},
-        incident::{IncidentDispatcher, Provider},
+        incident::{dedup_key, IncidentDispatcher, Provider},
     },
-    alerts::incident::{dedup_key, IncidentDispatcher, Provider},
     args::WatchArgs,
     commands::{scan::prepare_scan, EXIT_INVALID_ARGS},
     formatters::{render_json, render_text_with_options},
@@ -159,6 +161,26 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
         }
     };
 
+    // Build the optional Datadog adapter when credentials are provided.
+    let mut datadog: Option<DatadogAdapter> = if let Some(api_key) = args.datadog_api_key {
+        let site = match DatadogSite::parse(&args.datadog_site) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error: {e}");
+                return EXIT_INVALID_ARGS;
+            }
+        };
+        match DatadogAdapter::new(api_key, &site) {
+            Ok(adapter) => Some(adapter),
+            Err(_) => {
+                eprintln!("Error: could not initialize Datadog HTTP client");
+                return EXIT_INVALID_ARGS;
+            }
+        }
+    } else {
+        None
+    };
+
     let telegram_dispatcher =
         match init_telegram_dispatcher(args.telegram_bot_token, args.telegram_chat_id) {
             Ok(dispatcher) => dispatcher,
@@ -184,6 +206,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 for dispatcher in &mut dispatchers {
                     if let Err(error) = dispatcher.observe(&report, &keys).await {
                         eprintln!("Watch notification failed: {error}");
+                    }
+                }
+                if let Some(dd) = datadog.as_mut() {
+                    if let Err(error) = dd.observe(&report).await {
+                        eprintln!("Datadog notification failed: {error}");
                     }
                 }
                 if let Some(dispatcher) = &telegram_dispatcher {
