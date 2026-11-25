@@ -11,12 +11,14 @@ pub mod compare;
 pub mod debt;
 pub mod durability_migration;
 pub mod entry;
+pub mod envelope_packer;
 pub mod fee_bump;
 pub mod footprint;
 pub mod histogram;
 pub mod key_pattern;
 pub mod multisig;
 pub mod network_limits;
+pub mod overhead;
 pub mod planner;
 pub mod probabilistic_ttl;
 pub mod recommend;
@@ -52,6 +54,10 @@ pub use compare::{
 };
 pub use debt::{RentDebt, RentDebtCalculator};
 pub use entry::{Durability, EntryType, InstanceStorageBreakdown, SacAssetInfo, StorageEntry};
+pub use envelope_packer::{
+    calculate_batch_envelope_size, estimate_entry_footprint_bytes, pack_extension_batches,
+    BASE_ENVELOPE_OVERHEAD_BYTES, DEFAULT_ENTRY_FOOTPRINT_BYTES,
+};
 pub use fee_bump::{
     recommend_inclusion_fee, FeeBumpError, FeePercentiles, FeeRecommendation, FeeUrgency,
 };
@@ -61,6 +67,10 @@ pub use key_pattern::{
     MAX_KEY_PATTERN_CANDIDATES, MAX_KEY_PATTERN_LEN,
 };
 pub use network_limits::NetworkLimits;
+pub use overhead::{
+    calculate_storage_overhead, measure_contract_data_overhead, StorageOverheadAnalysis,
+    BASE_CONTRACT_DATA_WRAPPER_BYTES,
+};
 pub use planner::{
     plan_extension, plan_extension_with_cost, DeferralReason, DeferredExtension, ExtensionPlan,
     ExtensionPlanRequest, PlannedExtension,
