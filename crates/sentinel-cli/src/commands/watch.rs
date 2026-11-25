@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::{
+    adapters::alert_teams::TeamsAlertDispatcher,
     alerts::{
         datadog::{DatadogAdapter, DatadogSite},
         incident::{IncidentDispatcher, Provider},
@@ -30,6 +31,18 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
             eprintln!("Error: {error}");
             return EXIT_INVALID_ARGS;
         }
+    };
+
+    let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
+        match TeamsAlertDispatcher::new(webhook_url) {
+            Ok(dispatcher) => Some(dispatcher),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return EXIT_INVALID_ARGS;
+            }
+        }
+    } else {
+        None
     };
 
     let providers = [
@@ -100,6 +113,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 if let Some(dd) = datadog.as_mut() {
                     if let Err(error) = dd.observe(&report).await {
                         eprintln!("Datadog notification failed: {error}");
+                    }
+                }
+                if let Some(teams) = teams.as_mut() {
+                    if let Err(error) = teams.observe(&report).await {
+                        eprintln!("Teams notification failed: {error}");
                     }
                 }
             }

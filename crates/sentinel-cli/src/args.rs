@@ -126,6 +126,14 @@ pub struct WatchArgs {
     #[arg(long, default_value = "datadoghq.com", value_name = "SITE",
           value_parser = ["datadoghq.com", "datadoghq.eu"])]
     pub datadog_site: String,
+    /// Microsoft Teams incoming webhook URL for Adaptive Card alerts
+    #[arg(
+        long = "alert-teams",
+        env = "TEAMS_WEBHOOK_URL",
+        hide_env_values = true,
+        value_name = "WEBHOOK_URL"
+    )]
+    pub alert_teams: Option<String>,
 }
 
 impl std::fmt::Debug for WatchArgs {
