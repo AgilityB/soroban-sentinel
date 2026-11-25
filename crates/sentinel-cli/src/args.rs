@@ -29,6 +29,8 @@ pub enum Commands {
     TopConsumers(TopConsumersArgs),
     /// Check Soroban RPC connectivity, network identity, and protocol support
     Doctor(DoctorArgs),
+    /// Measure the connection and response latency of a Soroban RPC endpoint
+    TraceRoute(TraceRouteArgs),
     /// Monitor one contract and notify configured incident providers
     Watch(Box<WatchArgs>),
 
@@ -75,11 +77,26 @@ pub enum Commands {
 }
 
 #[derive(Args, Debug)]
+pub struct TraceRouteArgs {
+    #[arg(long, value_name = "URL")]
+    pub rpc_url: String,
+    /// Emit timing measurements as JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Disable ANSI color codes in terminal output
+    #[arg(long)]
+    pub no_color: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct DoctorArgs {
     #[arg(long, value_name = "URL", env = "SOROBAN_RPC_URL")]
     pub rpc_url: Option<String>,
     #[arg(long, default_value = "testnet", value_name = "NETWORK")]
     pub network: String,
+    /// Disable ANSI color codes in text output (also honored via the NO_COLOR environment variable)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 // Avoid Debug implementations that print provider credentials.
@@ -287,9 +304,13 @@ pub struct ScanArgs {
     #[arg(long, default_value = "testnet", value_name = "NETWORK")]
     pub network: String,
 
-    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "csv" (flat tabular export), "parquet" (binary columnar export, requires the `parquet` Cargo feature), or "sarif" (GitHub Code Scanning)
+    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "ndjson" (line-delimited JSON per storage entry), "csv" (flat tabular export), "parquet" (binary columnar export, requires the `parquet` Cargo feature), "sarif" (GitHub Code Scanning), or "markdown"
     #[arg(long, default_value = "text", value_name = "FORMAT")]
     pub format: String,
+
+    /// Disable ANSI color codes in text output (also honored via the NO_COLOR environment variable)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 
     /// Write report output to a file instead of stdout (existing files are overwritten)
     #[arg(long, value_name = "PATH")]
@@ -517,6 +538,10 @@ pub struct CheckArgs {
     /// Report format
     #[arg(long, default_value = "text", value_parser = ["text", "json"])]
     pub format: String,
+
+    /// Disable ANSI color codes in text output (also honored via the NO_COLOR environment variable)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 /// Shared selection for read-only contract entry inspection.
@@ -697,6 +722,7 @@ mod tests {
                 );
                 assert_eq!(scan.network, "testnet");
                 assert_eq!(scan.format, "text");
+                assert!(!scan.no_color);
                 assert!(scan.output.is_none());
                 assert_eq!(scan.threshold, 120960);
                 assert!(scan.rpc_url.is_none());
@@ -727,7 +753,8 @@ mod tests {
             "--network",
             "mainnet",
             "--format",
-            "json",
+            "ndjson",
+            "--no-color",
             "--output",
             "report.csv",
             "--threshold",
@@ -770,7 +797,8 @@ mod tests {
                     Some("https://soroban-testnet.stellar.org")
                 );
                 assert_eq!(scan.network, "mainnet");
-                assert_eq!(scan.format, "json");
+                assert_eq!(scan.format, "ndjson");
+                assert!(scan.no_color);
                 assert_eq!(scan.output.as_deref(), Some("report.csv"));
                 assert_eq!(scan.threshold, 50000);
                 assert_eq!(scan.key, vec!["COUNTER", "ADMIN"]);
