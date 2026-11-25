@@ -934,8 +934,8 @@ pub fn ingest_snapshots(
     let entries = fs::read_dir(input_dir)
         .map_err(|e| format!("failed to read directory '{}': {e}", input_dir.display()))?;
     for entry in entries {
-        let entry = entry
-            .map_err(|e| format!("failed to read entry in '{}': {e}", input_dir.display()))?;
+        let entry =
+            entry.map_err(|e| format!("failed to read entry in '{}': {e}", input_dir.display()))?;
         let path = entry.path();
         if !path.is_file() {
             continue;
@@ -961,8 +961,8 @@ pub fn ingest_snapshots(
 
     let mut pending: Vec<PendingSnapshot> = Vec::with_capacity(json_paths.len());
     for path in json_paths {
-        let metadata = fs::metadata(&path)
-            .map_err(|e| format!("failed to stat '{}': {e}", path.display()))?;
+        let metadata =
+            fs::metadata(&path).map_err(|e| format!("failed to stat '{}': {e}", path.display()))?;
         if metadata.len() > MAX_BASELINE_FILE_BYTES {
             return Err(format!(
                 "report '{}' exceeds maximum allowed size of {} bytes",
@@ -1228,10 +1228,7 @@ pub(crate) fn parse_iso8601_utc(input: &str) -> Result<i64, String> {
     let mut rest = &time_part[8..];
     // Skip optional fractional seconds (.123456)
     if let Some(after_dot) = rest.strip_prefix('.') {
-        let digits = after_dot
-            .bytes()
-            .take_while(|b| b.is_ascii_digit())
-            .count();
+        let digits = after_dot.bytes().take_while(|b| b.is_ascii_digit()).count();
         if digits == 0 {
             return Err(format!("invalid fractional seconds in '{input}'"));
         }
@@ -1391,7 +1388,10 @@ mod tests {
         dir
     }
 
-    fn make_series(snaps: Vec<(u32, &str, Vec<(&str, u32, i64, usize)>)>) -> IngestedSeries {
+    type TestEntrySpec<'a> = (&'a str, u32, i64, usize);
+    type TestSnapshotSpec<'a> = (u32, &'a str, Vec<TestEntrySpec<'a>>);
+
+    fn make_series(snaps: Vec<TestSnapshotSpec<'_>>) -> IngestedSeries {
         let snapshots = snaps
             .into_iter()
             .enumerate()
@@ -1489,7 +1489,11 @@ mod tests {
         });
 
         fs::write(dir.join("a_latest.json"), serde_json::to_vec(&r3).unwrap()).unwrap();
-        fs::write(dir.join("z_earliest.json"), serde_json::to_vec(&r1).unwrap()).unwrap();
+        fs::write(
+            dir.join("z_earliest.json"),
+            serde_json::to_vec(&r1).unwrap(),
+        )
+        .unwrap();
         fs::write(dir.join("m_middle.json"), serde_json::to_vec(&r2).unwrap()).unwrap();
         fs::write(dir.join("notes.txt"), "ignored").unwrap();
 
@@ -1632,8 +1636,22 @@ mod tests {
             warn_ci.margin_days > 0.0,
             "noisy fit should produce non-zero CI margin"
         );
-        assert!(warn_ci.earliest_timestamp <= *entry.warning_projection.projected_timestamp.as_ref().unwrap());
-        assert!(warn_ci.latest_timestamp >= *entry.warning_projection.projected_timestamp.as_ref().unwrap());
+        assert!(
+            warn_ci.earliest_timestamp
+                <= *entry
+                    .warning_projection
+                    .projected_timestamp
+                    .as_ref()
+                    .unwrap()
+        );
+        assert!(
+            warn_ci.latest_timestamp
+                >= *entry
+                    .warning_projection
+                    .projected_timestamp
+                    .as_ref()
+                    .unwrap()
+        );
     }
 
     #[test]
