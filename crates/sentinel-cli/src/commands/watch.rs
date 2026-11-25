@@ -1,11 +1,42 @@
 use std::time::Duration;
 
+use sentinel_core::AlertMinLevel;
+
 use crate::{
+    adapters::alert_mattermost::MattermostAlertDispatcher,
     alerts::incident::{IncidentDispatcher, Provider},
     args::WatchArgs,
     commands::{scan::prepare_scan, EXIT_INVALID_ARGS},
     formatters::{render_json, render_text},
 };
+
+/// Builds a configured [`MattermostAlertDispatcher`] when `--alert-mattermost` is supplied.
+pub fn build_mattermost_dispatcher(
+    args: &WatchArgs,
+) -> Result<Option<MattermostAlertDispatcher>, String> {
+    let Some(webhook_url) = args.alert_mattermost.as_deref() else {
+        return Ok(None);
+    };
+
+    let min_level = match args.scan.alert_min_level.as_str() {
+        "warn" => AlertMinLevel::Warn,
+        "critical" => AlertMinLevel::Critical,
+        other => return Err(format!("invalid --alert-min-level value: {other}")),
+    };
+
+    let mut dispatcher = MattermostAlertDispatcher::new(webhook_url)
+        .map_err(|error| error.to_string())?
+        .with_min_level(min_level);
+
+    if let Some(channel) = args.alert_mattermost_channel.as_deref() {
+        dispatcher = dispatcher.with_channel(channel);
+    }
+    if let Some(username) = args.alert_mattermost_username.as_deref() {
+        dispatcher = dispatcher.with_username(username);
+    }
+
+    Ok(Some(dispatcher))
+}
 
 pub async fn run_watch(args: WatchArgs) -> i32 {
     if args.scan.baseline.is_some() || args.scan.fail_on_regression {
@@ -22,6 +53,13 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
         return EXIT_INVALID_ARGS;
     }
     let (usecase, request) = match prepare_scan(&args.scan) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return EXIT_INVALID_ARGS;
+        }
+    };
+    let mattermost_dispatcher = match build_mattermost_dispatcher(&args) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("Error: {error}");
@@ -72,6 +110,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 for dispatcher in &mut dispatchers {
                     if let Err(error) = dispatcher.observe(&report, &keys).await {
                         eprintln!("Watch notification failed: {error}");
+                    }
+                }
+                if let Some(dispatcher) = mattermost_dispatcher.as_ref() {
+                    if let Err(error) = dispatcher.dispatch(&report).await {
+                        eprintln!("Watch Mattermost notification failed: {error}");
                     }
                 }
             }

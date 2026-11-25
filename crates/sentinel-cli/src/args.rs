@@ -94,6 +94,20 @@ pub struct WatchArgs {
     pub pagerduty_routing_key: Option<String>,
     #[arg(long, env = "OPSGENIE_API_KEY", hide_env_values = true)]
     pub opsgenie_api_key: Option<String>,
+    /// Mattermost incoming webhook URL for formatted alert cards
+    #[arg(
+        long = "alert-mattermost",
+        env = "SENTINEL_ALERT_MATTERMOST",
+        value_name = "URL",
+        hide_env_values = true
+    )]
+    pub alert_mattermost: Option<String>,
+    /// Optional Mattermost channel override for incoming webhook alerts
+    #[arg(long = "alert-mattermost-channel", value_name = "CHANNEL")]
+    pub alert_mattermost_channel: Option<String>,
+    /// Optional Mattermost username override for incoming webhook alerts
+    #[arg(long = "alert-mattermost-username", value_name = "USERNAME")]
+    pub alert_mattermost_username: Option<String>,
 }
 
 impl std::fmt::Debug for WatchArgs {
