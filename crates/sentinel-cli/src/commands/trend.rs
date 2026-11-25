@@ -11,6 +11,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use comfy_table::presets::ASCII_FULL;
+use comfy_table::{Cell, Color, Table};
 use sentinel_core::domain::compare::MAX_BASELINE_FILE_BYTES;
 use sentinel_core::domain::ttl::{SECONDS_PER_DAY, TARGET_LEDGER_CLOSE_SECONDS};
 use sentinel_core::domain::ThresholdConfig;
@@ -18,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::args::TrendArgs;
 use crate::commands::{resolve_threshold_config, EXIT_INVALID_ARGS, EXIT_OK};
+use crate::formatters::text::format_with_commas;
 
 /// Maximum projection horizon in days (~100 years) to guard calendar formatting against overflow.
 const MAX_PROJECTION_DAYS: f64 = 36_525.0;
@@ -253,21 +256,183 @@ pub fn run_trend(args: TrendArgs) -> i32 {
     let report = analyze_trend(&series, thresholds);
 
     if args.format == "json" {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).expect("trend report is serializable")
-        );
+        match render_trend_json(&report) {
+            Ok(json) => println!("{json}"),
+            Err(err) => {
+                eprintln!("Error: {err}");
+                return EXIT_INVALID_ARGS;
+            }
+        }
     } else {
-        println!(
-            "Analyzed {} entries across {} snapshots for {} on {}",
-            report.entries.len(),
-            report.snapshot_count,
-            report.contract_id,
-            report.network
-        );
+        println!("{}", render_trend_text(&report));
     }
 
     EXIT_OK
+}
+
+/// Renders a `TrendReport` as pretty-printed JSON.
+pub fn render_trend_json(report: &TrendReport) -> Result<String, String> {
+    serde_json::to_string_pretty(report)
+        .map_err(|err| format!("failed to serialize trend report: {err}"))
+}
+
+/// Renders a `TrendReport` as an ergonomic ASCII table with bump notes and summary.
+pub fn render_trend_text(report: &TrendReport) -> String {
+    let header_line = format!(
+        "Contract: {} | Network: {} | Snapshots: {} (Ledgers {} -> {})",
+        report.contract_id,
+        report.network,
+        report.snapshot_count,
+        format_with_commas(report.first_ledger),
+        format_with_commas(report.latest_ledger),
+    );
+    let window_line = format!(
+        "Window: {} -> {} | Thresholds: WARN < {}, CRITICAL < {}",
+        report.first_timestamp,
+        report.latest_timestamp,
+        format_with_commas(report.warning_threshold),
+        format_with_commas(report.critical_threshold),
+    );
+
+    let mut table = Table::new();
+    table.load_preset(ASCII_FULL);
+    table.set_header(vec![
+        "Entry",
+        "Latest Rem.",
+        "Slope (L/day)",
+        "R^2",
+        "Bumps",
+        "Warn Crossing (95% CI)",
+        "Critical Crossing (95% CI)",
+    ]);
+
+    let mut bumped_entries = 0usize;
+    let mut already_warn = 0usize;
+    let mut already_critical = 0usize;
+
+    for entry in &report.entries {
+        if entry.bump_count > 0 {
+            bumped_entries += 1;
+        }
+        if entry.critical_projection.state == ProjectionState::AlreadyCrossed {
+            already_critical += 1;
+        } else if entry.warning_projection.state == ProjectionState::AlreadyCrossed {
+            already_warn += 1;
+        }
+
+        let slope_cell = match entry.slope_ledgers_per_day {
+            Some(slope) => {
+                let formatted = format_signed_decimal(slope);
+                if entry.slope_carried_from_pre_bump {
+                    Cell::new(format!("{formatted}*"))
+                } else {
+                    Cell::new(formatted)
+                }
+            }
+            None => Cell::new("N/A"),
+        };
+
+        let r2_cell = match entry.r_squared {
+            Some(r2) => Cell::new(format!("{r2:.4}")),
+            None => Cell::new("N/A"),
+        };
+
+        let bump_cell = if entry.bump_count > 0 {
+            Cell::new(entry.bump_count.to_string()).fg(Color::Cyan)
+        } else {
+            Cell::new("0")
+        };
+
+        let warn_cell = format_projection_cell(&entry.warning_projection, Color::Yellow);
+        let crit_cell = format_projection_cell(&entry.critical_projection, Color::Red);
+
+        table.add_row(vec![
+            Cell::new(&entry.identifier),
+            Cell::new(format_with_commas(entry.latest_remaining_ledgers)),
+            slope_cell,
+            r2_cell,
+            bump_cell,
+            warn_cell,
+            crit_cell,
+        ]);
+    }
+
+    let mut sections = vec![header_line, window_line, table.to_string()];
+
+    let bump_notes: Vec<String> = report
+        .entries
+        .iter()
+        .flat_map(|entry| {
+            entry.bumps.iter().map(move |b| {
+                format!(
+                    "  - {}: ledger {} -> {} ({:+} rem, {:+} live_until) at {}",
+                    entry.identifier,
+                    format_with_commas(b.from_ledger),
+                    format_with_commas(b.to_ledger),
+                    b.remaining_ledgers_delta,
+                    b.live_until_ledger_delta,
+                    b.detected_timestamp
+                )
+            })
+        })
+        .collect();
+    if !bump_notes.is_empty() {
+        sections.push(format!("Detected TTL Bumps:\n{}", bump_notes.join("\n")));
+    }
+
+    if report
+        .entries
+        .iter()
+        .any(|entry| entry.slope_carried_from_pre_bump)
+    {
+        sections.push(
+            "Note: * indicates slope carried forward from the latest pre-bump segment because a bump occurred on the most recent snapshot."
+                .to_string(),
+        );
+    }
+
+    let summary_line = format!(
+        "Summary: {} entries analyzed. {} bumped, {} already WARN, {} already CRITICAL.",
+        report.entries.len(),
+        bumped_entries,
+        already_warn,
+        already_critical
+    );
+    sections.push(summary_line);
+
+    sections.join("\n")
+}
+
+fn format_projection_cell(projection: &ThresholdProjection, crossed_color: Color) -> Cell {
+    match projection.state {
+        ProjectionState::AlreadyCrossed => Cell::new("ALREADY CROSSED").fg(crossed_color),
+        ProjectionState::NotDecaying => Cell::new("NOT DECAYING").fg(Color::Green),
+        ProjectionState::InsufficientData => Cell::new("INSUFFICIENT DATA").fg(Color::DarkGrey),
+        ProjectionState::Projected => {
+            let date = projection.projected_date.as_deref().unwrap_or("N/A");
+            let text = match &projection.confidence_interval {
+                Some(ci) if ci.earliest_date != ci.latest_date => {
+                    format!(
+                        "{date} [{}..{}] (±{:.1}d)",
+                        ci.earliest_date, ci.latest_date, ci.margin_days
+                    )
+                }
+                Some(ci) => format!("{date} (±{:.1}d)", ci.margin_days),
+                None => format!("{date} (no CI)"),
+            };
+            Cell::new(text)
+        }
+    }
+}
+
+fn format_signed_decimal(value: f64) -> String {
+    let rounded = (value * 10.0).round() / 10.0;
+    let formatted = format_with_commas(format!("{rounded:.1}"));
+    if rounded > 0.0 {
+        format!("+{formatted}")
+    } else {
+        formatted
+    }
 }
 
 /// Internal per-entry time-series observation.
@@ -1614,5 +1779,50 @@ mod tests {
             ProjectionState::AlreadyCrossed
         );
         assert_eq!(warned.critical_projection.state, ProjectionState::Projected);
+    }
+
+    #[test]
+    fn test_render_trend_text_and_json() {
+        let series = make_series(vec![
+            (
+                5_000_000,
+                "2026-01-01T00:00:00Z",
+                vec![("instance", 5_293_760, 293_760, 320)],
+            ),
+            (
+                5_017_280,
+                "2026-01-02T00:00:00Z",
+                vec![("instance", 5_293_760, 276_480, 320)],
+            ),
+            (
+                5_034_560,
+                "2026-01-03T00:00:00Z",
+                vec![("instance", 5_293_760, 259_200, 320)],
+            ),
+        ]);
+        let report = analyze_trend(&series, ThresholdConfig::default());
+
+        let text = render_trend_text(&report);
+        assert!(text.contains("Entry"));
+        assert!(text.contains("Slope (L/day)"));
+        assert!(text.contains("Warn Crossing (95% CI)"));
+        assert!(text.contains("Critical Crossing (95% CI)"));
+        assert!(text.contains("instance"));
+        assert!(text.contains("-17,280.0"));
+        assert!(text.contains("2026-01-11"));
+        assert!(text.contains("2026-01-16"));
+
+        let json_str = render_trend_json(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["snapshot_count"], 3);
+        assert_eq!(parsed["entries"][0]["slope_ledgers_per_day"], -17280.0);
+        assert_eq!(
+            parsed["entries"][0]["warning_projection"]["projected_date"],
+            "2026-01-11"
+        );
+        assert_eq!(
+            parsed["entries"][0]["critical_projection"]["projected_date"],
+            "2026-01-16"
+        );
     }
 }
