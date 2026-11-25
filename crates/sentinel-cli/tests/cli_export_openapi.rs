@@ -107,6 +107,10 @@ async fn schema_accepts_payloads_emitted_by_the_actual_webhook_adapter() {
         overall_status: RiskLevel::Warn,
         archival_recommendations: vec![],
         sac_asset_info: None,
+        burn_rate: Default::default(),
+        contract_code_hash: None,
+        contract_bytecode_size: None,
+        contract_upgrade: None,
     };
     let adapter = WebhookAlertNotifier::new(server.uri()).unwrap();
     for kind in [AlertKind::Slack, AlertKind::Discord] {

@@ -29,6 +29,10 @@ fn score_uses_documented_weights_and_status_caps() {
         overall_status: RiskLevel::Warn,
         archival_recommendations: vec![],
         sac_asset_info: None,
+        burn_rate: Default::default(),
+        contract_code_hash: None,
+        contract_bytecode_size: None,
+        contract_upgrade: None,
     };
     // 60*(50/100) + 20*(1-500/1000) + 20*(1-1/10) = 58.
     assert_eq!(health_score(&report, 100, 10, 1000), 58);
