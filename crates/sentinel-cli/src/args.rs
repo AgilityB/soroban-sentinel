@@ -98,7 +98,12 @@ pub struct WatchArgs {
     #[arg(long, env = "SENTINEL_TELEGRAM_BOT_TOKEN", hide_env_values = true)]
     pub telegram_bot_token: Option<String>,
     /// Telegram target chat or channel ID for outbound risk alerts
-    #[arg(long, env = "SENTINEL_TELEGRAM_CHAT_ID", hide_env_values = true)]
+    #[arg(
+        long,
+        env = "SENTINEL_TELEGRAM_CHAT_ID",
+        hide_env_values = true,
+        allow_hyphen_values = true
+    )]
     pub telegram_chat_id: Option<String>,
 }
 
