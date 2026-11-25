@@ -6,17 +6,24 @@
 //! and projects calendar dates (with 95% confidence intervals) when entries
 //! will cross warning and critical thresholds.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sentinel_core::domain::compare::MAX_BASELINE_FILE_BYTES;
 use sentinel_core::domain::ttl::{SECONDS_PER_DAY, TARGET_LEDGER_CLOSE_SECONDS};
+use sentinel_core::domain::ThresholdConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::args::TrendArgs;
 use crate::commands::{resolve_threshold_config, EXIT_INVALID_ARGS, EXIT_OK};
+
+/// Maximum projection horizon in days (~100 years) to guard calendar formatting against overflow.
+const MAX_PROJECTION_DAYS: f64 = 36_525.0;
+
+/// Confidence level used for crossing-date confidence intervals (95%).
+const CONFIDENCE_LEVEL: f64 = 0.95;
 
 /// Origin of the wall-clock timestamps used for regression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,12 +108,139 @@ pub struct IngestedSeries {
     pub snapshots: Vec<IngestedSnapshot>,
 }
 
+/// A detected discontinuous positive jump in an entry's TTL between two consecutive snapshots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BumpEvent {
+    /// Ledger sequence of the snapshot before the bump.
+    pub from_ledger: u32,
+    /// Ledger sequence of the snapshot where the bump was observed.
+    pub to_ledger: u32,
+    /// UTC timestamp of the snapshot where the bump was observed.
+    pub detected_timestamp: String,
+    /// Change in `remaining_ledgers` across the jump.
+    pub remaining_ledgers_delta: i64,
+    /// Change in `live_until_ledger` across the jump.
+    pub live_until_ledger_delta: i64,
+}
+
+/// Classification of a threshold crossing projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionState {
+    /// Crossing date was projected from a negative decay slope.
+    Projected,
+    /// Latest observation is already strictly below the threshold.
+    AlreadyCrossed,
+    /// Entry slope is non-negative (flat or increasing), so no crossing is projected.
+    NotDecaying,
+    /// Not enough contiguous points with distinct timestamps to fit a slope.
+    InsufficientData,
+}
+
+/// 95% confidence interval for a projected threshold crossing date.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfidenceInterval {
+    /// Nominal confidence level (0.95).
+    pub level: f64,
+    /// Earliest projected calendar date (`YYYY-MM-DD`, UTC).
+    pub earliest_date: String,
+    /// Latest projected calendar date (`YYYY-MM-DD`, UTC).
+    pub latest_date: String,
+    /// Earliest projected timestamp (`YYYY-MM-DDTHH:MM:SSZ`, UTC).
+    pub earliest_timestamp: String,
+    /// Latest projected timestamp (`YYYY-MM-DDTHH:MM:SSZ`, UTC).
+    pub latest_timestamp: String,
+    /// Half-width uncertainty in days (`(latest - earliest) / 2`).
+    pub margin_days: f64,
+}
+
+/// Projected warning or critical threshold crossing for a storage entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThresholdProjection {
+    /// Threshold value in remaining ledgers.
+    pub threshold_ledgers: u32,
+    /// Outcome classification for this projection.
+    pub state: ProjectionState,
+    /// Point-estimate calendar date (`YYYY-MM-DD`, UTC) when `state == Projected`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_date: Option<String>,
+    /// Point-estimate UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`) when `state == Projected`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_timestamp: Option<String>,
+    /// Point-estimate Unix epoch seconds when `state == Projected`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_unix_seconds: Option<i64>,
+    /// Projected days remaining from the latest snapshot until crossing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_until_crossing: Option<f64>,
+    /// 95% confidence interval around the crossing date, available when segment has >= 3 points.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence_interval: Option<ConfidenceInterval>,
+}
+
+/// Complete trend regression and threshold-crossing forecast for a single storage entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EntryTrend {
+    /// Storage entry identifier (e.g. `instance`, `code_wasm`, `persistent:Admin`).
+    pub identifier: String,
+    /// Total snapshots in which this entry appeared.
+    pub total_observations: usize,
+    /// Number of contiguous observations used to fit the linear regression slope.
+    pub regression_observations: usize,
+    /// Most recent observed `live_until_ledger`.
+    pub latest_live_until_ledger: u32,
+    /// Most recent observed `remaining_ledgers`.
+    pub latest_remaining_ledgers: i64,
+    /// Most recent observed entry byte size.
+    pub latest_size_bytes: usize,
+    /// Net change in entry byte size from earliest to latest observation.
+    pub size_bytes_delta: i64,
+    /// Linear regression decay slope `dL / dt` in ledgers per day (negative when decaying).
+    pub slope_ledgers_per_day: Option<f64>,
+    /// Linear regression decay slope `dL / dt` in ledgers per second (negative when decaying).
+    pub slope_ledgers_per_second: Option<f64>,
+    /// Regression intercept (remaining ledgers at the start of the regression segment).
+    pub intercept_ledgers: Option<f64>,
+    /// Coefficient of determination (`R^2`) for the fitted regression line.
+    pub r_squared: Option<f64>,
+    /// Number of discontinuous positive jumps (TTL bumps) detected across snapshots.
+    pub bump_count: usize,
+    /// Details of each detected TTL bump event.
+    pub bumps: Vec<BumpEvent>,
+    /// True if a bump occurred on the latest snapshot and pre-bump slope was carried forward.
+    pub slope_carried_from_pre_bump: bool,
+    /// Projected crossing of the warning threshold.
+    pub warning_projection: ThresholdProjection,
+    /// Projected crossing of the critical threshold.
+    pub critical_projection: ThresholdProjection,
+}
+
+/// Complete trend analysis report across all entries of a contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrendReport {
+    pub contract_id: String,
+    pub network: String,
+    pub snapshot_count: usize,
+    pub first_ledger: u32,
+    pub latest_ledger: u32,
+    pub first_timestamp: String,
+    pub latest_timestamp: String,
+    pub timestamp_source: TimestampSource,
+    pub warning_threshold: u32,
+    pub critical_threshold: u32,
+    pub entries: Vec<EntryTrend>,
+}
+
 /// Entry point for `sentinel trend`.
 pub fn run_trend(args: TrendArgs) -> i32 {
-    if let Err(err) = resolve_threshold_config(args.warning_threshold, args.critical_threshold) {
-        eprintln!("Error: {err}");
-        return EXIT_INVALID_ARGS;
-    }
+    let thresholds = match resolve_threshold_config(args.warning_threshold, args.critical_threshold)
+    {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            return EXIT_INVALID_ARGS;
+        }
+    };
 
     let series = match ingest_snapshots(&args.input_dir, args.contract.as_deref()) {
         Ok(series) => series,
@@ -116,26 +250,492 @@ pub fn run_trend(args: TrendArgs) -> i32 {
         }
     };
 
+    let report = analyze_trend(&series, thresholds);
+
     if args.format == "json" {
-        let payload = serde_json::json!({
-            "contract_id": series.contract_id,
-            "network": series.network,
-            "snapshot_count": series.snapshots.len(),
-        });
         println!(
             "{}",
-            serde_json::to_string_pretty(&payload).expect("trend summary is serializable")
+            serde_json::to_string_pretty(&report).expect("trend report is serializable")
         );
     } else {
         println!(
-            "Ingested {} snapshots for {} on {}",
-            series.snapshots.len(),
-            series.contract_id,
-            series.network
+            "Analyzed {} entries across {} snapshots for {} on {}",
+            report.entries.len(),
+            report.snapshot_count,
+            report.contract_id,
+            report.network
         );
     }
 
     EXIT_OK
+}
+
+/// Internal per-entry time-series observation.
+#[derive(Debug, Clone, Copy)]
+struct EntryObservation {
+    ledger: u32,
+    timestamp_secs: i64,
+    size_bytes: usize,
+    live_until_ledger: u32,
+    remaining_ledgers: i64,
+}
+
+/// Internal result of least-squares linear regression `y = slope * x + intercept`
+/// where `x = (timestamp_secs - origin_secs) / 86400.0` (days) and `y = remaining_ledgers`.
+#[derive(Debug, Clone, Copy)]
+struct OlsFit {
+    origin_secs: i64,
+    n: usize,
+    x_mean: f64,
+    sxx_centered: f64,
+    slope: f64,
+    intercept: f64,
+    r_squared: f64,
+    /// Residual standard error `sqrt(SS_res / (n - 2))`, defined for `n >= 3`.
+    residual_std_err: Option<f64>,
+}
+
+/// Runs linear regression, bump detection, and threshold-crossing projection across an ordered series.
+pub fn analyze_trend(series: &IngestedSeries, thresholds: ThresholdConfig) -> TrendReport {
+    let mut by_entry: BTreeMap<String, Vec<EntryObservation>> = BTreeMap::new();
+    for snap in &series.snapshots {
+        for entry in &snap.entries {
+            by_entry
+                .entry(entry.identifier.clone())
+                .or_default()
+                .push(EntryObservation {
+                    ledger: snap.latest_ledger,
+                    timestamp_secs: snap.timestamp_secs,
+                    size_bytes: entry.size_bytes,
+                    live_until_ledger: entry.live_until_ledger,
+                    remaining_ledgers: entry.remaining_ledgers,
+                });
+        }
+    }
+
+    let entries = by_entry
+        .into_iter()
+        .map(|(identifier, observations)| analyze_entry(identifier, &observations, thresholds))
+        .collect();
+
+    let first = series.snapshots.first().expect("series has >= 2 snapshots");
+    let latest = series.snapshots.last().expect("series has >= 2 snapshots");
+
+    TrendReport {
+        contract_id: series.contract_id.clone(),
+        network: series.network.clone(),
+        snapshot_count: series.snapshots.len(),
+        first_ledger: first.latest_ledger,
+        latest_ledger: latest.latest_ledger,
+        first_timestamp: format_timestamp_utc(first.timestamp_secs),
+        latest_timestamp: format_timestamp_utc(latest.timestamp_secs),
+        timestamp_source: series.timestamp_source,
+        warning_threshold: thresholds.warning_ledgers,
+        critical_threshold: thresholds.critical_ledgers,
+        entries,
+    }
+}
+
+/// Analyzes one storage entry's chronological observations, splitting on TTL bumps.
+fn analyze_entry(
+    identifier: String,
+    observations: &[EntryObservation],
+    thresholds: ThresholdConfig,
+) -> EntryTrend {
+    let first = observations[0];
+    let latest = observations[observations.len() - 1];
+    let size_bytes_delta = (latest.size_bytes as i64) - (first.size_bytes as i64);
+
+    // Split observations into contiguous segments separated by discontinuous positive jumps (bumps).
+    let mut segments: Vec<Vec<EntryObservation>> = vec![vec![observations[0]]];
+    let mut bumps: Vec<BumpEvent> = Vec::new();
+
+    for pair in observations.windows(2) {
+        let prev = pair[0];
+        let curr = pair[1];
+        if is_discontinuous_bump(prev, curr) {
+            bumps.push(BumpEvent {
+                from_ledger: prev.ledger,
+                to_ledger: curr.ledger,
+                detected_timestamp: format_timestamp_utc(curr.timestamp_secs),
+                remaining_ledgers_delta: curr.remaining_ledgers - prev.remaining_ledgers,
+                live_until_ledger_delta: i64::from(curr.live_until_ledger)
+                    - i64::from(prev.live_until_ledger),
+            });
+            segments.push(vec![curr]);
+        } else {
+            segments
+                .last_mut()
+                .expect("at least one segment exists")
+                .push(curr);
+        }
+    }
+
+    let latest_segment = segments.last().expect("at least one segment exists");
+    let (fit, slope_carried_from_pre_bump) = if latest_segment.len() >= 2 {
+        (fit_ols(latest_segment), false)
+    } else {
+        // Entry was bumped right before the most recent snapshot: carry forward the slope
+        // from the most recent multi-point pre-bump segment if available.
+        let pre_fit = segments[..segments.len().saturating_sub(1)]
+            .iter()
+            .rev()
+            .find_map(|seg| if seg.len() >= 2 { fit_ols(seg) } else { None });
+        (pre_fit, pre_fit.is_some())
+    };
+
+    let regression_observations = fit.map(|f| f.n).unwrap_or(latest_segment.len());
+    let slope_ledgers_per_day = fit.map(|f| round_4(f.slope));
+    let slope_ledgers_per_second = fit.map(|f| round_6(f.slope / SECONDS_PER_DAY));
+    let intercept_ledgers = fit.map(|f| {
+        if slope_carried_from_pre_bump {
+            round_2(latest.remaining_ledgers as f64)
+        } else {
+            round_2(f.intercept)
+        }
+    });
+    let r_squared = fit.map(|f| round_6(f.r_squared));
+
+    let warning_projection = project_threshold(
+        thresholds.warning_ledgers,
+        latest,
+        fit,
+        slope_carried_from_pre_bump,
+    );
+    let critical_projection = project_threshold(
+        thresholds.critical_ledgers,
+        latest,
+        fit,
+        slope_carried_from_pre_bump,
+    );
+
+    EntryTrend {
+        identifier,
+        total_observations: observations.len(),
+        regression_observations,
+        latest_live_until_ledger: latest.live_until_ledger,
+        latest_remaining_ledgers: latest.remaining_ledgers,
+        latest_size_bytes: latest.size_bytes,
+        size_bytes_delta,
+        slope_ledgers_per_day,
+        slope_ledgers_per_second,
+        intercept_ledgers,
+        r_squared,
+        bump_count: bumps.len(),
+        bumps,
+        slope_carried_from_pre_bump,
+        warning_projection,
+        critical_projection,
+    }
+}
+
+/// Detects whether storage TTL was bumped (extended) between two consecutive observations.
+fn is_discontinuous_bump(prev: EntryObservation, curr: EntryObservation) -> bool {
+    let live_until_jumped = prev.live_until_ledger > 0
+        && curr.live_until_ledger > 0
+        && curr.live_until_ledger > prev.live_until_ledger;
+    let remaining_jumped = curr.remaining_ledgers > prev.remaining_ledgers;
+    live_until_jumped || remaining_jumped
+}
+
+/// Performs ordinary least-squares linear regression using:
+/// `slope m = (N * sum(xy) - sum(x) * sum(y)) / (N * sum(x^2) - (sum(x))^2)`
+/// with `x` shifted to elapsed days since the first point in the segment to prevent
+/// floating-point cancellation on Unix epoch timestamps.
+fn fit_ols(points: &[EntryObservation]) -> Option<OlsFit> {
+    let n = points.len();
+    if n < 2 {
+        return None;
+    }
+
+    let origin_secs = points[0].timestamp_secs;
+    let n_f = n as f64;
+
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut sum_xy = 0.0;
+    let mut sum_xx = 0.0;
+
+    for pt in points {
+        let x = (pt.timestamp_secs - origin_secs) as f64 / SECONDS_PER_DAY;
+        let y = pt.remaining_ledgers as f64;
+        sum_x += x;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_xx += x * x;
+    }
+
+    let denom = n_f * sum_xx - sum_x * sum_x;
+    if !denom.is_finite() || denom <= 1e-12 {
+        return None;
+    }
+
+    let slope = (n_f * sum_xy - sum_x * sum_y) / denom;
+    if !slope.is_finite() {
+        return None;
+    }
+    let intercept = (sum_y - slope * sum_x) / n_f;
+    let x_mean = sum_x / n_f;
+    let y_mean = sum_y / n_f;
+
+    let mut ss_res = 0.0;
+    let mut ss_tot = 0.0;
+    let mut sxx_centered = 0.0;
+    for pt in points {
+        let x = (pt.timestamp_secs - origin_secs) as f64 / SECONDS_PER_DAY;
+        let y = pt.remaining_ledgers as f64;
+        let predicted = slope * x + intercept;
+        let resid = y - predicted;
+        ss_res += resid * resid;
+        let dy = y - y_mean;
+        ss_tot += dy * dy;
+        let dx = x - x_mean;
+        sxx_centered += dx * dx;
+    }
+
+    let r_squared = if ss_tot <= 1e-12 {
+        if ss_res <= 1e-12 {
+            1.0
+        } else {
+            0.0
+        }
+    } else {
+        (1.0 - ss_res / ss_tot).clamp(0.0, 1.0)
+    };
+
+    let residual_std_err = if n >= 3 {
+        Some((ss_res / (n - 2) as f64).max(0.0).sqrt())
+    } else {
+        None
+    };
+
+    Some(OlsFit {
+        origin_secs,
+        n,
+        x_mean,
+        sxx_centered,
+        slope,
+        intercept,
+        r_squared,
+        residual_std_err,
+    })
+}
+
+/// Projects when remaining ledgers will cross `threshold`, along with a 95% confidence interval.
+fn project_threshold(
+    threshold: u32,
+    latest: EntryObservation,
+    fit: Option<OlsFit>,
+    slope_carried_from_pre_bump: bool,
+) -> ThresholdProjection {
+    if latest.remaining_ledgers < i64::from(threshold) {
+        return ThresholdProjection {
+            threshold_ledgers: threshold,
+            state: ProjectionState::AlreadyCrossed,
+            projected_date: None,
+            projected_timestamp: None,
+            projected_unix_seconds: None,
+            days_until_crossing: None,
+            confidence_interval: None,
+        };
+    }
+
+    let Some(fit) = fit else {
+        return ThresholdProjection {
+            threshold_ledgers: threshold,
+            state: ProjectionState::InsufficientData,
+            projected_date: None,
+            projected_timestamp: None,
+            projected_unix_seconds: None,
+            days_until_crossing: None,
+            confidence_interval: None,
+        };
+    };
+
+    if fit.slope >= -1e-9 {
+        return ThresholdProjection {
+            threshold_ledgers: threshold,
+            state: ProjectionState::NotDecaying,
+            projected_date: None,
+            projected_timestamp: None,
+            projected_unix_seconds: None,
+            days_until_crossing: None,
+            confidence_interval: None,
+        };
+    }
+
+    let threshold_f = f64::from(threshold);
+    let latest_ts = latest.timestamp_secs;
+
+    let (projected_ts, ci) = if slope_carried_from_pre_bump {
+        // Line is anchored at the post-bump observation `(latest_ts, latest.remaining_ledgers)`
+        // with slope carried forward from the pre-bump OLS fit.
+        let delta_days_raw = (threshold_f - latest.remaining_ledgers as f64) / fit.slope;
+        let delta_days = delta_days_raw.clamp(0.0, MAX_PROJECTION_DAYS);
+        let projected_ts = latest_ts.saturating_add((delta_days * SECONDS_PER_DAY).round() as i64);
+
+        let ci = fit.residual_std_err.map(|s| {
+            let df = fit.n - 2;
+            let t_crit = student_t_95(df);
+            let se_slope = if fit.sxx_centered > 1e-12 {
+                s / fit.sxx_centered.sqrt()
+            } else {
+                0.0
+            };
+            let (lo_days, hi_days) = if se_slope <= 1e-12 {
+                (delta_days, delta_days)
+            } else {
+                let fast_slope = fit.slope - t_crit * se_slope; // more negative -> earlier crossing
+                let slow_slope = fit.slope + t_crit * se_slope; // less negative -> later crossing
+                if slow_slope < -1e-9 {
+                    let lo = ((threshold_f - latest.remaining_ledgers as f64) / fast_slope)
+                        .clamp(0.0, delta_days);
+                    let hi = ((threshold_f - latest.remaining_ledgers as f64) / slow_slope)
+                        .clamp(delta_days, MAX_PROJECTION_DAYS);
+                    (lo, hi)
+                } else {
+                    let margin =
+                        (t_crit * se_slope / fit.slope.abs() * delta_days).min(MAX_PROJECTION_DAYS);
+                    (
+                        (delta_days - margin).max(0.0),
+                        (delta_days + margin).min(MAX_PROJECTION_DAYS),
+                    )
+                }
+            };
+            let earliest_ts = latest_ts.saturating_add((lo_days * SECONDS_PER_DAY).round() as i64);
+            let latest_ci_ts = latest_ts.saturating_add((hi_days * SECONDS_PER_DAY).round() as i64);
+            build_confidence_interval(earliest_ts, latest_ci_ts)
+        });
+        (projected_ts, ci)
+    } else {
+        let x_last = (latest_ts - fit.origin_secs) as f64 / SECONDS_PER_DAY;
+        let x_cross_raw = (threshold_f - fit.intercept) / fit.slope;
+        let x_cross = x_cross_raw.clamp(x_last, x_last + MAX_PROJECTION_DAYS);
+        let projected_ts = fit
+            .origin_secs
+            .saturating_add((x_cross * SECONDS_PER_DAY).round() as i64);
+
+        let ci = fit.residual_std_err.map(|s| {
+            let df = fit.n - 2;
+            let t_crit = student_t_95(df);
+            let (x_lo, x_hi) = if s <= 1e-12 || fit.sxx_centered <= 1e-12 {
+                (x_cross, x_cross)
+            } else {
+                // Fieller's exact inverse-regression confidence interval when slope is
+                // statistically significant at 95% (g < 1), falling back to delta method otherwise.
+                let g = (t_crit * s).powi(2) / (fit.slope * fit.slope * fit.sxx_centered);
+                let dx = x_cross - fit.x_mean;
+                if g < 1.0 {
+                    let radicand = ((1.0 - g) / fit.n as f64 + (dx * dx) / fit.sxx_centered)
+                        .max(0.0)
+                        .sqrt();
+                    let center = fit.x_mean + dx / (1.0 - g);
+                    let half = (t_crit * s / fit.slope.abs()) * radicand / (1.0 - g);
+                    let lo = (center - half).clamp(x_last, x_cross);
+                    let hi = (center + half).clamp(x_cross, x_last + MAX_PROJECTION_DAYS);
+                    (lo, hi)
+                } else {
+                    let se_y = s * (1.0 / fit.n as f64 + (dx * dx) / fit.sxx_centered).sqrt();
+                    let half = (t_crit * se_y / fit.slope.abs()).min(MAX_PROJECTION_DAYS);
+                    let lo = (x_cross - half).clamp(x_last, x_cross);
+                    let hi = (x_cross + half).clamp(x_cross, x_last + MAX_PROJECTION_DAYS);
+                    (lo, hi)
+                }
+            };
+            let earliest_ts = fit
+                .origin_secs
+                .saturating_add((x_lo * SECONDS_PER_DAY).round() as i64);
+            let latest_ci_ts = fit
+                .origin_secs
+                .saturating_add((x_hi * SECONDS_PER_DAY).round() as i64);
+            build_confidence_interval(earliest_ts, latest_ci_ts)
+        });
+        (projected_ts, ci)
+    };
+
+    let days_until = round_2(((projected_ts - latest_ts) as f64 / SECONDS_PER_DAY).max(0.0));
+
+    ThresholdProjection {
+        threshold_ledgers: threshold,
+        state: ProjectionState::Projected,
+        projected_date: Some(format_date_utc(projected_ts)),
+        projected_timestamp: Some(format_timestamp_utc(projected_ts)),
+        projected_unix_seconds: Some(projected_ts),
+        days_until_crossing: Some(days_until),
+        confidence_interval: ci,
+    }
+}
+
+fn build_confidence_interval(earliest_ts: i64, latest_ts: i64) -> ConfidenceInterval {
+    let earliest_ts = earliest_ts.min(latest_ts);
+    let latest_ts = latest_ts.max(earliest_ts);
+    let margin_days = round_2(((latest_ts - earliest_ts) as f64 / SECONDS_PER_DAY) / 2.0);
+    ConfidenceInterval {
+        level: CONFIDENCE_LEVEL,
+        earliest_date: format_date_utc(earliest_ts),
+        latest_date: format_date_utc(latest_ts),
+        earliest_timestamp: format_timestamp_utc(earliest_ts),
+        latest_timestamp: format_timestamp_utc(latest_ts),
+        margin_days,
+    }
+}
+
+/// Two-tailed 95% Student's t critical value (`t_{0.025, df}`) for `df >= 1`.
+fn student_t_95(df: usize) -> f64 {
+    const TABLE: [f64; 30] = [
+        12.706205, // df = 1
+        4.302653,  // df = 2
+        3.182446,  // df = 3
+        2.776445,  // df = 4
+        2.570582,  // df = 5
+        2.446912,  // df = 6
+        2.364624,  // df = 7
+        2.306004,  // df = 8
+        2.262157,  // df = 9
+        2.228139,  // df = 10
+        2.200985,  // df = 11
+        2.178813,  // df = 12
+        2.160369,  // df = 13
+        2.144787,  // df = 14
+        2.131450,  // df = 15
+        2.119905,  // df = 16
+        2.109816,  // df = 17
+        2.100922,  // df = 18
+        2.093024,  // df = 19
+        2.085963,  // df = 20
+        2.079614,  // df = 21
+        2.073873,  // df = 22
+        2.068658,  // df = 23
+        2.063899,  // df = 24
+        2.059539,  // df = 25
+        2.055529,  // df = 26
+        2.051831,  // df = 27
+        2.048407,  // df = 28
+        2.045230,  // df = 29
+        2.042272,  // df = 30
+    ];
+    if df == 0 {
+        return TABLE[0];
+    }
+    if df <= TABLE.len() {
+        TABLE[df - 1]
+    } else {
+        // Cornish-Fisher expansion for 95% two-tailed normal quantile z = 1.959964.
+        let v = df as f64;
+        1.959964 + 2.37227 / v + 2.8225 / (v * v)
+    }
+}
+
+fn round_2(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
+fn round_4(value: f64) -> f64 {
+    (value * 10_000.0).round() / 10_000.0
+}
+
+fn round_6(value: f64) -> f64 {
+    (value * 1_000_000.0).round() / 1_000_000.0
 }
 
 struct PendingSnapshot {
@@ -212,9 +812,10 @@ pub fn ingest_snapshots(
             .map_err(|e| format!("invalid JSON scan report '{}': {e}", path.display()))?;
 
         let report_timestamp = match &report.timestamp {
-            Some(raw) => Some(parse_raw_timestamp(raw).map_err(|e| {
-                format!("invalid timestamp in '{}': {e}", path.display())
-            })?),
+            Some(raw) => Some(
+                parse_raw_timestamp(raw)
+                    .map_err(|e| format!("invalid timestamp in '{}': {e}", path.display()))?,
+            ),
             None => None,
         };
 
@@ -513,7 +1114,6 @@ fn extract_timestamp_from_filename(file_name: &str) -> Option<i64> {
                 .iter()
                 .all(|b| b.is_ascii_digit())
         {
-            // Check for full datetime suffix `THH-MM-SSZ` or `THH:MM:SSZ`
             if start + 20 <= bytes.len()
                 && (bytes[start + 10] == b'T' || bytes[start + 10] == b't')
                 && (bytes[start + 19] == b'Z' || bytes[start + 19] == b'z')
@@ -626,6 +1226,37 @@ mod tests {
         dir
     }
 
+    fn make_series(snaps: Vec<(u32, &str, Vec<(&str, u32, i64, usize)>)>) -> IngestedSeries {
+        let snapshots = snaps
+            .into_iter()
+            .enumerate()
+            .map(|(i, (ledger, ts, entries))| IngestedSnapshot {
+                file_name: format!("snap-{i}.json"),
+                contract_id: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM".to_string(),
+                network: "testnet".to_string(),
+                latest_ledger: ledger,
+                ledger_velocity_seconds: 5.0,
+                timestamp_secs: parse_iso8601_utc(ts).unwrap(),
+                explicit_timestamp: true,
+                entries: entries
+                    .into_iter()
+                    .map(|(id, live, rem, size)| SnapshotEntryPoint {
+                        identifier: id.to_string(),
+                        size_bytes: size,
+                        live_until_ledger: live,
+                        remaining_ledgers: rem,
+                    })
+                    .collect(),
+            })
+            .collect();
+        IngestedSeries {
+            contract_id: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM".to_string(),
+            network: "testnet".to_string(),
+            timestamp_source: TimestampSource::Report,
+            snapshots,
+        }
+    }
+
     #[test]
     fn test_iso8601_roundtrip_and_calendar_math() {
         assert_eq!(parse_iso8601_utc("1970-01-01").unwrap(), 0);
@@ -642,12 +1273,10 @@ mod tests {
             format_date_utc(parse_iso8601_utc("2024-02-29T23:59:59Z").unwrap()),
             "2024-02-29"
         );
-        // Timezone offset (+02:00 means UTC is 2 hours earlier)
         assert_eq!(
             parse_iso8601_utc("2026-01-15T14:00:00+02:00").unwrap(),
             parse_iso8601_utc("2026-01-15T12:00:00Z").unwrap()
         );
-        // Invalid leap day
         assert!(parse_iso8601_utc("2025-02-29").is_err());
     }
 
@@ -669,7 +1298,6 @@ mod tests {
         let dir = temp_test_dir("order");
         let contract = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
 
-        // Intentionally write files with misleading alphabetical names
         let r3 = json!({
             "contract_id": contract,
             "network": "testnet",
@@ -742,5 +1370,249 @@ mod tests {
         );
 
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_exact_linear_decay_and_crossing_dates() {
+        // Exact -17,280 ledgers/day (-0.2 ledgers/sec) starting at 293,760 on 2026-01-01.
+        // Warning threshold = 120,960 => crossed at (293,760 - 120,960) / 17,280 = 10 days => 2026-01-11.
+        // Critical threshold = 34,560 => crossed at (293,760 - 34,560) / 17,280 = 15 days => 2026-01-16.
+        let series = make_series(vec![
+            (
+                5_000_000,
+                "2026-01-01T00:00:00Z",
+                vec![("instance", 5_293_760, 293_760, 320)],
+            ),
+            (
+                5_017_280,
+                "2026-01-02T00:00:00Z",
+                vec![("instance", 5_293_760, 276_480, 330)],
+            ),
+            (
+                5_034_560,
+                "2026-01-03T00:00:00Z",
+                vec![("instance", 5_293_760, 259_200, 340)],
+            ),
+        ]);
+
+        let report = analyze_trend(&series, ThresholdConfig::default());
+        assert_eq!(report.entries.len(), 1);
+        let entry = &report.entries[0];
+
+        assert_eq!(entry.slope_ledgers_per_day, Some(-17_280.0));
+        assert_eq!(entry.slope_ledgers_per_second, Some(-0.2));
+        assert_eq!(entry.r_squared, Some(1.0));
+        assert_eq!(entry.bump_count, 0);
+        assert_eq!(entry.size_bytes_delta, 20);
+
+        assert_eq!(entry.warning_projection.state, ProjectionState::Projected);
+        assert_eq!(
+            entry.warning_projection.projected_date.as_deref(),
+            Some("2026-01-11")
+        );
+        let warn_ci = entry
+            .warning_projection
+            .confidence_interval
+            .as_ref()
+            .expect("3 points should yield CI");
+        assert_eq!(warn_ci.earliest_date, "2026-01-11");
+        assert_eq!(warn_ci.latest_date, "2026-01-11");
+        assert_eq!(warn_ci.margin_days, 0.0);
+
+        assert_eq!(entry.critical_projection.state, ProjectionState::Projected);
+        assert_eq!(
+            entry.critical_projection.projected_date.as_deref(),
+            Some("2026-01-16")
+        );
+    }
+
+    #[test]
+    fn test_noisy_decay_produces_nonzero_confidence_interval() {
+        // Realistic slight ledger-close jitter around ~17,300 ledgers/day across 4 days.
+        let series = make_series(vec![
+            (
+                5_000_000,
+                "2026-01-01T00:00:00Z",
+                vec![("instance", 5_300_000, 300_000, 300)],
+            ),
+            (
+                5_017_600,
+                "2026-01-02T00:00:00Z",
+                vec![("instance", 5_300_000, 282_400, 300)],
+            ),
+            (
+                5_034_400,
+                "2026-01-03T00:00:00Z",
+                vec![("instance", 5_300_000, 265_600, 300)],
+            ),
+            (
+                5_052_200,
+                "2026-01-04T00:00:00Z",
+                vec![("instance", 5_300_000, 247_800, 300)],
+            ),
+        ]);
+
+        let report = analyze_trend(&series, ThresholdConfig::default());
+        let entry = &report.entries[0];
+        let slope = entry.slope_ledgers_per_day.unwrap();
+        assert!(slope < -17_000.0 && slope > -17_600.0, "slope={slope}");
+        assert!(entry.r_squared.unwrap() > 0.99);
+
+        let warn_ci = entry
+            .warning_projection
+            .confidence_interval
+            .as_ref()
+            .expect("CI expected for N=4");
+        assert!(
+            warn_ci.margin_days > 0.0,
+            "noisy fit should produce non-zero CI margin"
+        );
+        assert!(warn_ci.earliest_timestamp <= *entry.warning_projection.projected_timestamp.as_ref().unwrap());
+        assert!(warn_ci.latest_timestamp >= *entry.warning_projection.projected_timestamp.as_ref().unwrap());
+    }
+
+    #[test]
+    fn test_mid_series_storage_bump_is_detected_and_segmented() {
+        // Day 1-2 decay, then bumped before Day 3, then Day 3-5 decay cleanly at -17,280 L/day.
+        let series = make_series(vec![
+            (
+                5_000_000,
+                "2026-01-01T00:00:00Z",
+                vec![("instance", 5_200_000, 200_000, 256)],
+            ),
+            (
+                5_017_280,
+                "2026-01-02T00:00:00Z",
+                vec![("instance", 5_200_000, 182_720, 256)],
+            ),
+            // TTL bumped to 5,500,000 before Day 3!
+            (
+                5_034_560,
+                "2026-01-03T00:00:00Z",
+                vec![("instance", 5_500_000, 465_440, 256)],
+            ),
+            (
+                5_051_840,
+                "2026-01-04T00:00:00Z",
+                vec![("instance", 5_500_000, 448_160, 256)],
+            ),
+            (
+                5_069_120,
+                "2026-01-05T00:00:00Z",
+                vec![("instance", 5_500_000, 430_880, 256)],
+            ),
+        ]);
+
+        let report = analyze_trend(&series, ThresholdConfig::default());
+        let entry = &report.entries[0];
+
+        assert_eq!(entry.bump_count, 1);
+        assert_eq!(entry.bumps[0].from_ledger, 5_017_280);
+        assert_eq!(entry.bumps[0].to_ledger, 5_034_560);
+        assert_eq!(entry.bumps[0].live_until_ledger_delta, 300_000);
+        assert_eq!(entry.regression_observations, 3);
+        assert!(!entry.slope_carried_from_pre_bump);
+        assert_eq!(entry.slope_ledgers_per_day, Some(-17_280.0));
+        assert_eq!(entry.warning_projection.state, ProjectionState::Projected);
+        // 430,880 - 120,960 = 309,920 ledgers => 17.935 days after 2026-01-05 => 2026-01-22
+        assert_eq!(
+            entry.warning_projection.projected_date.as_deref(),
+            Some("2026-01-22")
+        );
+    }
+
+    #[test]
+    fn test_bump_on_latest_snapshot_carries_pre_bump_slope() {
+        // Day 1-3 decay at -17,280 L/day, then Day 4 is freshly bumped.
+        let series = make_series(vec![
+            (
+                5_000_000,
+                "2026-01-01T00:00:00Z",
+                vec![("instance", 5_200_000, 200_000, 256)],
+            ),
+            (
+                5_017_280,
+                "2026-01-02T00:00:00Z",
+                vec![("instance", 5_200_000, 182_720, 256)],
+            ),
+            (
+                5_034_560,
+                "2026-01-03T00:00:00Z",
+                vec![("instance", 5_200_000, 165_440, 256)],
+            ),
+            (
+                5_051_840,
+                "2026-01-04T00:00:00Z",
+                vec![("instance", 5_345_600, 293_760, 256)],
+            ),
+        ]);
+
+        let report = analyze_trend(&series, ThresholdConfig::default());
+        let entry = &report.entries[0];
+
+        assert_eq!(entry.bump_count, 1);
+        assert!(entry.slope_carried_from_pre_bump);
+        assert_eq!(entry.slope_ledgers_per_day, Some(-17_280.0));
+        // 293,760 - 120,960 = 172,800 => 10 days after 2026-01-04 => 2026-01-14
+        assert_eq!(
+            entry.warning_projection.projected_date.as_deref(),
+            Some("2026-01-14")
+        );
+    }
+
+    #[test]
+    fn test_already_crossed_and_archived_entries() {
+        let series = make_series(vec![
+            (
+                5_000_000,
+                "2026-01-01T00:00:00Z",
+                vec![
+                    ("persistent:Warned", 5_100_000, 100_000, 64),
+                    ("persistent:Dead", 0, 0, 0),
+                ],
+            ),
+            (
+                5_017_280,
+                "2026-01-02T00:00:00Z",
+                vec![
+                    ("persistent:Warned", 5_100_000, 82_720, 64),
+                    ("persistent:Dead", 0, 0, 0),
+                ],
+            ),
+            (
+                5_034_560,
+                "2026-01-03T00:00:00Z",
+                vec![
+                    ("persistent:Warned", 5_100_000, 65_440, 64),
+                    ("persistent:Dead", 0, 0, 0),
+                ],
+            ),
+        ]);
+
+        let report = analyze_trend(&series, ThresholdConfig::default());
+        let dead = report
+            .entries
+            .iter()
+            .find(|e| e.identifier == "persistent:Dead")
+            .unwrap();
+        assert_eq!(
+            dead.warning_projection.state,
+            ProjectionState::AlreadyCrossed
+        );
+        assert_eq!(
+            dead.critical_projection.state,
+            ProjectionState::AlreadyCrossed
+        );
+
+        let warned = report
+            .entries
+            .iter()
+            .find(|e| e.identifier == "persistent:Warned")
+            .unwrap();
+        assert_eq!(
+            warned.warning_projection.state,
+            ProjectionState::AlreadyCrossed
+        );
+        assert_eq!(warned.critical_projection.state, ProjectionState::Projected);
     }
 }
