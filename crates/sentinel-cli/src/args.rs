@@ -136,6 +136,13 @@ pub struct WatchArgs {
         allow_hyphen_values = true
     )]
     pub telegram_chat_id: Option<String>,
+    /// Datadog API key for metrics and events submission
+    #[arg(
+        long,
+        env = "DATADOG_API_KEY",
+        hide_env_values = true,
+        value_name = "KEY"
+    )]
     pub datadog_api_key: Option<String>,
     /// Datadog intake site: "datadoghq.com" (US, default) or "datadoghq.eu" (EU)
     #[arg(long, default_value = "datadoghq.com", value_name = "SITE",
