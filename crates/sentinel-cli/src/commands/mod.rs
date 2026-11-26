@@ -14,6 +14,7 @@ pub mod init;
 pub mod key_diff;
 pub mod keys;
 pub mod network;
+pub mod prune_plan;
 pub mod restore;
 pub mod scan;
 pub mod service;
@@ -35,6 +36,7 @@ pub use init::run_init;
 pub use key_diff::run_key_diff;
 pub use keys::{run_key_decode, run_key_encode};
 pub use network::run_network;
+pub use prune_plan::run_prune_plan;
 pub use restore::run_restore;
 
 pub use scan::{

@@ -78,6 +78,7 @@ async fn main() {
         Commands::Check(args) => commands::run_check(args).await,
         Commands::CostMatrix(args) => commands::run_cost_matrix(args).await,
         Commands::Scan(args) => commands::run_scan(*args).await,
+        Commands::PrunePlan(args) => commands::run_prune_plan(args).await,
         Commands::Bundle(args) => commands::run_bundle(args).await,
         Commands::AuditKeys(args) => commands::run_audit_keys(args).await,
         Commands::Bump(args) => commands::run_bump(args).await,

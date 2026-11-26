@@ -1,5 +1,6 @@
 //! Output formatters for scan reports.
 
+pub mod html;
 pub mod json;
 pub mod markdown;
 pub mod ndjson;
@@ -10,6 +11,7 @@ pub mod sarif;
 pub mod tabular;
 pub mod text;
 
+pub use html::render_html;
 pub use json::{render_json, render_json_with_diff, JsonEntryReport, JsonSummary, JsonTTLReport};
 pub use markdown::render_markdown;
 pub use ndjson::{build_ndjson_entries, render_ndjson, NdjsonEntry};
