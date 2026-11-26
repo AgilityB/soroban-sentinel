@@ -128,6 +128,17 @@ pub struct WatchArgs {
     pub pagerduty_routing_key: Option<String>,
     #[arg(long, env = "OPSGENIE_API_KEY", hide_env_values = true)]
     pub opsgenie_api_key: Option<String>,
+    /// Telegram Bot API token for outbound risk alerts
+    #[arg(long, env = "SENTINEL_TELEGRAM_BOT_TOKEN", hide_env_values = true)]
+    pub telegram_bot_token: Option<String>,
+    /// Telegram target chat or channel ID for outbound risk alerts
+    #[arg(
+        long,
+        env = "SENTINEL_TELEGRAM_CHAT_ID",
+        hide_env_values = true,
+        allow_hyphen_values = true
+    )]
+    pub telegram_chat_id: Option<String>,
     /// Datadog API key for metrics and events submission
     #[arg(
         long,
