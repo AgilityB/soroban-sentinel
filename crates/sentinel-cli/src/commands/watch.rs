@@ -1,12 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
-use sentinel_core::{RiskLevel, StorageEntry, TTLReport};
-
-use sentinel_core::AlertMinLevel;
+use sentinel_core::{AlertMinLevel, RiskLevel, StorageEntry, TTLReport};
 
 use crate::{
-    adapters::{alert_mattermost::MattermostAlertDispatcher, alert_teams::TeamsAlertDispatcher},
     adapters::{
+        alert_mattermost::MattermostAlertDispatcher,
         alert_teams::TeamsAlertDispatcher,
         alert_telegram::{
             SentinelEvent, TelegramAlertDispatcher, ENV_TELEGRAM_BOT_TOKEN, ENV_TELEGRAM_CHAT_ID,
@@ -47,6 +45,8 @@ pub fn build_mattermost_dispatcher(
     }
 
     Ok(Some(dispatcher))
+}
+
 /// Initializes an optional [`TelegramAlertDispatcher`] from CLI/environment credentials.
 pub fn init_telegram_dispatcher(
     bot_token: Option<String>,
@@ -252,6 +252,8 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 if let Some(dispatcher) = mattermost_dispatcher.as_ref() {
                     if let Err(error) = dispatcher.dispatch(&report).await {
                         eprintln!("Watch Mattermost notification failed: {error}");
+                    }
+                }
                 if let Some(dispatcher) = &telegram_dispatcher {
                     if let Err(error) =
                         dispatch_telegram_report(dispatcher, &report, &keys, &mut telegram_reported)

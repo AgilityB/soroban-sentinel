@@ -2,15 +2,12 @@
 
 pub mod alert_mattermost;
 pub mod alert_teams;
+pub mod alert_telegram;
 
 pub use alert_mattermost::{
     MattermostAlertDispatcher, MattermostAttachment, MattermostError, MattermostField,
     MattermostPayload, MattermostProps, COLOR_CRITICAL, COLOR_WARN,
-//! Outbound infrastructure adapters for `sentinel-cli`.
-
-pub mod alert_teams;
-pub mod alert_telegram;
-
+};
 pub use alert_telegram::{
     escape_html, risk_badge_emoji, stellar_expert_contract_url, SentinelEvent,
     TelegramAlertDispatcher, TelegramAlertError, TelegramConfig, TelegramSendMessagePayload,
