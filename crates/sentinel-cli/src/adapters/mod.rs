@@ -1,8 +1,3 @@
-//! Outbound infrastructure adapters for `sentinel-cli`.
-
-pub mod alert_teams;
-pub mod alert_telegram;
-
 //! External service and notification adapters for `sentinel-cli`.
 
 pub mod alert_mattermost;

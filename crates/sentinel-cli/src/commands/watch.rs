@@ -1,9 +1,5 @@
 use std::{collections::HashMap, time::Duration};
 
-use sentinel_core::{RiskLevel, StorageEntry, TTLReport};
-
-use crate::{
-    adapters::{
 use sentinel_core::{AlertMinLevel, RiskLevel, StorageEntry, TTLReport};
 
 use crate::{
@@ -159,18 +155,6 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
             eprintln!("Error: {error}");
             return EXIT_INVALID_ARGS;
         }
-    };
-
-    let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
-        match TeamsAlertDispatcher::new(webhook_url) {
-            Ok(dispatcher) => Some(dispatcher),
-            Err(error) => {
-                eprintln!("Error: {error}");
-                return EXIT_INVALID_ARGS;
-            }
-        }
-    } else {
-        None
     };
 
     let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
