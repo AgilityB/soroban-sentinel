@@ -3,9 +3,7 @@ use std::time::Duration;
 use sentinel_core::AlertMinLevel;
 
 use crate::{
-    adapters::alert_mattermost::MattermostAlertDispatcher,
-    alerts::incident::{IncidentDispatcher, Provider},
-    adapters::alert_teams::TeamsAlertDispatcher,
+    adapters::{alert_mattermost::MattermostAlertDispatcher, alert_teams::TeamsAlertDispatcher},
     alerts::{
         datadog::{DatadogAdapter, DatadogSite},
         incident::{IncidentDispatcher, Provider},
@@ -147,6 +145,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 for dispatcher in &mut dispatchers {
                     if let Err(error) = dispatcher.observe(&report, &keys).await {
                         eprintln!("Watch notification failed: {error}");
+                    }
+                }
+                if let Some(dd) = datadog.as_mut() {
+                    if let Err(error) = dd.observe(&report).await {
+                        eprintln!("Datadog notification failed: {error}");
                     }
                 }
                 if let Some(dispatcher) = mattermost_dispatcher.as_ref() {
