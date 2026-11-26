@@ -156,6 +156,20 @@ pub struct WatchArgs {
     pub pagerduty_routing_key: Option<String>,
     #[arg(long, env = "OPSGENIE_API_KEY", hide_env_values = true)]
     pub opsgenie_api_key: Option<String>,
+    /// Mattermost incoming webhook URL for formatted alert cards
+    #[arg(
+        long = "alert-mattermost",
+        env = "SENTINEL_ALERT_MATTERMOST",
+        value_name = "URL",
+        hide_env_values = true
+    )]
+    pub alert_mattermost: Option<String>,
+    /// Optional Mattermost channel override for incoming webhook alerts
+    #[arg(long = "alert-mattermost-channel", value_name = "CHANNEL")]
+    pub alert_mattermost_channel: Option<String>,
+    /// Optional Mattermost username override for incoming webhook alerts
+    #[arg(long = "alert-mattermost-username", value_name = "USERNAME")]
+    pub alert_mattermost_username: Option<String>,
     /// Telegram Bot API token for outbound risk alerts
     #[arg(long, env = "SENTINEL_TELEGRAM_BOT_TOKEN", hide_env_values = true)]
     pub telegram_bot_token: Option<String>,
@@ -388,6 +402,8 @@ pub struct ScanArgs {
 
     /// Output format for scan results: text, json, ndjson, csv, parquet, sarif, markdown, pushgateway, or html (self-contained HTML5 report)
     /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "ndjson" (line-delimited JSON per storage entry), "csv" (flat tabular export), "parquet" (binary columnar export, requires the `parquet` Cargo feature), "sarif" (GitHub Code Scanning), "markdown" (CI summary), or "html" (self-contained HTML5 report)
+    /// Output format for scan results: text, json, csv, parquet, sarif, markdown, or pushgateway
+    /// Output format for scan results: "text" (colorized ASCII table), "json" (machine-readable), "ndjson" (line-delimited JSON per storage entry), "csv" (flat tabular export), "parquet" (binary columnar export, requires the `parquet` Cargo feature), "sarif" (GitHub Code Scanning), or "markdown"
     #[arg(long, default_value = "text", value_name = "FORMAT")]
     pub format: String,
 

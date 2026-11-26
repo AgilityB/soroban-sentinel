@@ -4,6 +4,11 @@ use sentinel_core::{RiskLevel, StorageEntry, TTLReport};
 
 use crate::{
     adapters::{
+use sentinel_core::{AlertMinLevel, RiskLevel, StorageEntry, TTLReport};
+
+use crate::{
+    adapters::{
+        alert_mattermost::MattermostAlertDispatcher,
         alert_teams::TeamsAlertDispatcher,
         alert_telegram::{
             SentinelEvent, TelegramAlertDispatcher, ENV_TELEGRAM_BOT_TOKEN, ENV_TELEGRAM_CHAT_ID,
@@ -17,6 +22,34 @@ use crate::{
     commands::{scan::prepare_scan, EXIT_INVALID_ARGS},
     formatters::{render_json, render_text_with_options},
 };
+
+/// Builds a configured [`MattermostAlertDispatcher`] when `--alert-mattermost` is supplied.
+pub fn build_mattermost_dispatcher(
+    args: &WatchArgs,
+) -> Result<Option<MattermostAlertDispatcher>, String> {
+    let Some(webhook_url) = args.alert_mattermost.as_deref() else {
+        return Ok(None);
+    };
+
+    let min_level = match args.scan.alert_min_level.as_str() {
+        "warn" => AlertMinLevel::Warn,
+        "critical" => AlertMinLevel::Critical,
+        other => return Err(format!("invalid --alert-min-level value: {other}")),
+    };
+
+    let mut dispatcher = MattermostAlertDispatcher::new(webhook_url)
+        .map_err(|error| error.to_string())?
+        .with_min_level(min_level);
+
+    if let Some(channel) = args.alert_mattermost_channel.as_deref() {
+        dispatcher = dispatcher.with_channel(channel);
+    }
+    if let Some(username) = args.alert_mattermost_username.as_deref() {
+        dispatcher = dispatcher.with_username(username);
+    }
+
+    Ok(Some(dispatcher))
+}
 
 /// Initializes an optional [`TelegramAlertDispatcher`] from CLI/environment credentials.
 pub fn init_telegram_dispatcher(
@@ -120,6 +153,25 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
             return EXIT_INVALID_ARGS;
         }
     };
+    let mattermost_dispatcher = match build_mattermost_dispatcher(&args) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            return EXIT_INVALID_ARGS;
+        }
+    };
+
+    let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
+        match TeamsAlertDispatcher::new(webhook_url) {
+            Ok(dispatcher) => Some(dispatcher),
+            Err(error) => {
+                eprintln!("Error: {error}");
+                return EXIT_INVALID_ARGS;
+            }
+        }
+    } else {
+        None
+    };
 
     let mut teams = if let Some(webhook_url) = args.alert_teams.as_deref() {
         match TeamsAlertDispatcher::new(webhook_url) {
@@ -211,6 +263,11 @@ pub async fn run_watch(args: WatchArgs) -> i32 {
                 if let Some(dd) = datadog.as_mut() {
                     if let Err(error) = dd.observe(&report).await {
                         eprintln!("Datadog notification failed: {error}");
+                    }
+                }
+                if let Some(dispatcher) = mattermost_dispatcher.as_ref() {
+                    if let Err(error) = dispatcher.dispatch(&report).await {
+                        eprintln!("Watch Mattermost notification failed: {error}");
                     }
                 }
                 if let Some(dispatcher) = &telegram_dispatcher {

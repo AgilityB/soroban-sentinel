@@ -24,6 +24,8 @@ use crate::formatters::render_parquet;
 use crate::formatters::{
     render_csv, render_html, render_json_with_diff, render_markdown, render_ndjson,
     render_pushgateway, render_sarif, render_text_with_diff_and_options,
+    render_csv, render_json_with_diff, render_markdown, render_ndjson, render_pushgateway,
+    render_sarif, render_text_with_diff_and_options,
 };
 
 /// Exit code: All evaluated storage entries have status OK.
@@ -642,6 +644,9 @@ pub async fn run_scan(mut args: ScanArgs) -> i32 {
                 "text, json, ndjson, csv, parquet, sarif, markdown, pushgateway, html"
             } else {
                 "text, json, ndjson, csv, sarif, markdown, pushgateway, html"
+                "text, json, ndjson, csv, parquet, sarif, markdown, pushgateway"
+            } else {
+                "text, json, ndjson, csv, sarif, markdown, pushgateway"
             };
             eprintln!(
                 "Error: Unsupported format '{}'. Supported formats: {}",
