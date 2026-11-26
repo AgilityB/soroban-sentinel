@@ -14,6 +14,7 @@ pub mod entry;
 pub mod envelope_packer;
 pub mod fee_bump;
 pub mod footprint;
+pub mod footprint_fees;
 pub mod histogram;
 pub mod init_footprint;
 pub mod key_pattern;
@@ -63,6 +64,12 @@ pub use fee_bump::{
     recommend_inclusion_fee, FeeBumpError, FeePercentiles, FeeRecommendation, FeeUrgency,
 };
 pub use footprint::{AtRiskFootprint, FootprintAccess, FootprintValidation, FootprintValidator};
+pub use footprint_fees::{
+    billed_kib_units, classify_ledger_key, scale_bytes_fee, stroops_to_xlm, xdr_encoded_len,
+    FootprintEntryCost, FootprintEntryInput, FootprintEntryKind, FootprintFeeBreakdown,
+    FootprintFeeCalculator, FootprintFeeError, FootprintPartitionCost, BYTES_PER_KIB,
+    STROOPS_PER_XLM, TESTNET_FEE_READ_1KB_STROOPS, TESTNET_FEE_WRITE_1KB_STROOPS,
+};
 pub use key_pattern::{
     parse_key_pattern, KeyPattern, KeyPatternCandidateInput, KeyPatternToken,
     MAX_KEY_PATTERN_CANDIDATES, MAX_KEY_PATTERN_LEN,
