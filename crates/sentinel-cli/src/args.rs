@@ -25,6 +25,10 @@ pub struct Cli {
 pub enum Commands {
     /// Scan a contract and inspect storage entry TTL status and expiry risk
     Scan(Box<ScanArgs>),
+    /// Export OpenAPI 3.1 webhook contracts offline
+    ExportOpenapi(ExportOpenapiArgs),
+    /// Score contract health from a fleet manifest
+    HealthMatrix(HealthMatrixArgs),
     /// Rank resolved contract entries by serialized byte size
     TopConsumers(TopConsumersArgs),
     /// Check Soroban RPC connectivity, network identity, and protocol support
@@ -986,4 +990,30 @@ mod tests {
             _ => panic!("expected trend command"),
         }
     }
+}
+
+#[derive(Args, Debug)]
+pub struct ExportOpenapiArgs {
+    #[arg(long, default_value = "json", value_parser = ["json", "yaml"])]
+    pub format: String,
+}
+
+#[derive(Args, Debug)]
+pub struct HealthMatrixArgs {
+    #[arg(long, value_name = "PATH")]
+    pub manifest: std::path::PathBuf,
+    /// Show only contracts scoring below this minimum.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+    pub min_score: Option<u8>,
+    /// Persistent-key count consuming all 20 count-headroom points.
+    #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u32).range(1..))]
+    pub entry_budget: u32,
+    /// Largest-entry byte size consuming all 20 storage-headroom points.
+    #[arg(long, default_value_t = 65536, value_parser = clap::value_parser!(u64).range(1..))]
+    pub storage_budget_bytes: u64,
+    /// Supply a planning rent rate together with its denominator.
+    #[arg(long, requires = "rent_denominator")]
+    pub rent_fee_per_kib: Option<u64>,
+    #[arg(long, requires = "rent_fee_per_kib", value_parser = clap::value_parser!(u64).range(1..))]
+    pub rent_denominator: Option<u64>,
 }

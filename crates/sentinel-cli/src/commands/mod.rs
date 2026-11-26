@@ -43,6 +43,10 @@ pub mod doctor;
 pub mod watch;
 pub use service::run_install_service;
 
+pub mod export_openapi;
+pub mod health_matrix;
+pub use export_openapi::run_export_openapi;
+pub use health_matrix::run_health_matrix;
 pub mod top_consumers;
 pub use top_consumers::run_top_consumers;
 pub mod trend;
