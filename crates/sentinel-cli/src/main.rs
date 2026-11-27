@@ -74,6 +74,7 @@ async fn main() {
     let exit_code = match cli.command {
         Commands::TopConsumers(args) => commands::run_top_consumers(args).await,
         Commands::Check(args) => commands::run_check(args).await,
+        Commands::Completions(args) => commands::run_completions(args.shell),
         Commands::CostMatrix(args) => commands::run_cost_matrix(args).await,
         Commands::Scan(args) => commands::run_scan(*args).await,
         Commands::Bundle(args) => commands::run_bundle(args).await,

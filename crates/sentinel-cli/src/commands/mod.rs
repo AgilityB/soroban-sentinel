@@ -12,6 +12,7 @@ pub mod init;
 pub mod keys;
 pub mod network;
 pub mod restore;
+pub mod completions;
 pub mod scan;
 pub mod service;
 #[cfg(feature = "tui")]
@@ -34,6 +35,7 @@ pub use scan::{
     resolve_rpc_url, resolve_threshold_config, run_scan, EXIT_CRITICAL_OR_ARCHIVED,
     EXIT_INVALID_ARGS, EXIT_OK, EXIT_RPC_FAILURE, EXIT_WARN,
 };
+pub use completions::{run_completions, SUPPORTED_SHELLS, EXIT_INVALID_ARGS as EXIT_INVALID_SHELL};
 pub mod doctor;
 pub mod watch;
 pub use service::run_install_service;

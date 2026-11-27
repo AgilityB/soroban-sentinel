@@ -28,6 +28,7 @@ pub mod upgrade;
 pub mod wasm_analysis;
 pub mod wasm_graph;
 pub mod wasm_imports;
+pub mod schedule;
 
 pub use acceleration::{
     AcceleratedDecayWarning, AccelerationError, AccelerationReport, DecayClassification,
@@ -75,6 +76,9 @@ pub use risk::{
 pub use scenario::{
     evaluate_protocol_scenario, NetworkRentParameters, ProtocolScenarioReport, ScenarioEntry,
     ScenarioEntryImpact, ScenarioError,
+};
+pub use schedule::{
+    MaintenanceWindow, ExpirationCalendar, MaintenanceWindowGranularity, urgent_windows,
 };
 pub use storage_audit::{
     analyze_storage_entry, estimate_annual_rent_savings, AuditEntry, AuditFinding,
