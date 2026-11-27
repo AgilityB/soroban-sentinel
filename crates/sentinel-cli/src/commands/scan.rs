@@ -24,6 +24,8 @@ use crate::formatters::render_parquet;
 use crate::formatters::{
     render_csv, render_junit, render_json_with_diff, render_markdown, render_ndjson,
     render_sarif, render_text_with_diff_and_options,
+    render_csv, render_html, render_json_with_diff, render_markdown, render_ndjson,
+    render_pushgateway, render_sarif, render_text_with_diff_and_options,
 };
 
 /// Exit code: All evaluated storage entries have status OK.
@@ -633,6 +635,8 @@ pub async fn run_scan(mut args: ScanArgs) -> i32 {
         },
         "ndjson" => render_ndjson(&report),
         "csv" => render_csv(&report),
+        "html" => Ok(render_html(&report)),
+        "pushgateway" => Ok(render_pushgateway(&report)),
         "sarif" => render_sarif(&report),
         "markdown" => Ok(render_markdown(&report)),
         "junit" => Ok(render_junit(&report, baseline_diff.as_ref())),
@@ -641,6 +645,9 @@ pub async fn run_scan(mut args: ScanArgs) -> i32 {
                 "text, json, ndjson, csv, parquet, sarif, markdown, junit"
             } else {
                 "text, json, ndjson, csv, sarif, markdown, junit"
+                "text, json, ndjson, csv, parquet, sarif, markdown, pushgateway, html"
+            } else {
+                "text, json, ndjson, csv, sarif, markdown, pushgateway, html"
             };
             eprintln!(
                 "Error: Unsupported format '{}'. Supported formats: {}",
@@ -662,8 +669,8 @@ pub async fn run_scan(mut args: ScanArgs) -> i32 {
                     eprintln!("Error: failed to write --output '{}': {}", path, err);
                     return EXIT_INVALID_ARGS;
                 }
-            } else if format == "csv" {
-                // The CSV writer already terminates every record; avoid a blank line.
+            } else if matches!(format.as_str(), "csv" | "pushgateway") {
+                // These formats already terminate their final line.
                 println!("{}", output.trim_end_matches('\n'));
             } else if format == "ndjson" {
                 if !output.is_empty() {
